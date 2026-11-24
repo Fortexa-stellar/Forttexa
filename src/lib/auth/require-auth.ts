@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getSessionFromRequest, type AuthRole } from "@/lib/auth/session";
 import { isSessionRevoked } from "@/lib/auth/session-revocation";
+import { resolveRequestId } from "@/lib/http/request-id";
 import { applySecurityHeaders } from "@/lib/security/headers";
 
 type RequireAuthOptions = {
@@ -20,7 +21,7 @@ function unauthorizedResponse(requestId: string) {
 
 export function requireAuth(request: NextRequest, options?: RequireAuthOptions) {
   const session = getSessionFromRequest(request);
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = resolveRequestId(request);
 
   if (!session) {
     const response = NextResponse.json(
@@ -67,7 +68,7 @@ export async function requireActiveAuth(request: NextRequest, options?: RequireA
   if (await isSessionRevoked(auth.session.sid)) {
     return {
       ok: false as const,
-      response: unauthorizedResponse(request.headers.get("x-request-id") ?? crypto.randomUUID()),
+      response: unauthorizedResponse(resolveRequestId(request)),
     };
   }
 

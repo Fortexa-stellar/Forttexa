@@ -105,4 +105,31 @@ describe("securityHeadersForRequest", () => {
 
     expect(securityHeadersForRequest(request)["x-request-id"]).toBe("incoming-id");
   });
+
+  it("replaces an oversized inbound id with a server UUID in the response headers", () => {
+    const generated = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(generated);
+
+    const request = new Request("http://localhost/api/decision", {
+      headers: { "x-request-id": "x".repeat(200) },
+    });
+
+    expect(securityHeadersForRequest(request)["x-request-id"]).toBe(generated);
+
+    vi.restoreAllMocks();
+  });
+
+  it("replaces a control-character inbound id with a server UUID in the response headers", () => {
+    const generated = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(generated);
+
+    // Fetch Headers rejects CR/LF; stub get() to simulate a hostile inbound value.
+    const request = {
+      headers: { get: () => "bad\nid" },
+    };
+
+    expect(securityHeadersForRequest(request)["x-request-id"]).toBe(generated);
+
+    vi.restoreAllMocks();
+  });
 });

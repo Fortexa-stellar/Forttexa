@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { resolveRequestId } from "@/lib/http/request-id";
 import { recordApiMetric } from "@/lib/observability/metrics";
 import { redactSensitiveFields } from "@/lib/observability/redact";
 import { applySecurityHeaders } from "@/lib/security/headers";
@@ -60,7 +61,7 @@ export function jsonWithRequestContext(
     });
   }
 
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = resolveRequestId(request);
   const durationMs = Math.max(0, Date.now() - input.startedAtMs);
 
   recordApiMetric({

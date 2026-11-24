@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
+import { resolveRequestId } from "@/lib/http/request-id";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { listAllAuditEntriesByUser, listAuditEntries, validateAuditFilter } from "@/lib/storage/audit-store";
@@ -166,7 +167,7 @@ export async function GET(request: NextRequest) {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": `attachment; filename=${buildAuditExportFilename("all")}`,
           "X-Content-Type-Options": "nosniff",
-          "x-request-id": request.headers.get("x-request-id") ?? crypto.randomUUID(),
+          "x-request-id": resolveRequestId(request),
         },
       });
     }
@@ -221,7 +222,7 @@ export async function GET(request: NextRequest) {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename=${filenameMine}`,
         "X-Content-Type-Options": "nosniff",
-        "x-request-id": request.headers.get("x-request-id") ?? crypto.randomUUID(),
+        "x-request-id": resolveRequestId(request),
       },
     });
   } catch (error) {

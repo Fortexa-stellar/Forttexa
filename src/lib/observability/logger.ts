@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 
+import { resolveRequestId } from "@/lib/http/request-id";
 import { redactSensitiveFields } from "@/lib/observability/redact";
 
 type LogLevel = "info" | "warn" | "error";
@@ -26,7 +27,7 @@ function serialize(level: LogLevel, message: string, context?: LogContext) {
 }
 
 export function getRequestId(request: NextRequest) {
-  return request.headers.get("x-request-id") ?? "unknown";
+  return resolveRequestId(request);
 }
 
 export function getRequestLogContext(request: NextRequest, route: string): LogContext {

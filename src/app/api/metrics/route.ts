@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
+import { resolveRequestId } from "@/lib/http/request-id";
 import { getMetricsSnapshot, recordApiMetric, toPrometheusText } from "@/lib/observability/metrics";
 
 export async function GET(request: NextRequest) {
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest) {
     return auth.response;
   }
 
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = resolveRequestId(request);
   const format = request.nextUrl.searchParams.get("format")?.toLowerCase();
 
   recordApiMetric({

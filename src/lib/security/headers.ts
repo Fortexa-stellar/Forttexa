@@ -1,3 +1,5 @@
+import { resolveRequestId } from "@/lib/http/request-id";
+
 export function buildSecurityHeaders(): Record<string, string> {
   const isDev = process.env.NODE_ENV === "development";
 
@@ -73,13 +75,13 @@ export function applySecurityHeaders<T extends { headers: Headers }>(
 
 /**
  * Convenience wrapper for route handlers that build their own responses: reads
- * (or mints) the request id and returns the header record the route should
- * merge into `NextResponse.json`.
+ * (or mints) a sanitized request id and returns the header record the route
+ * should merge into `NextResponse.json`.
  */
 export function securityHeadersForRequest(
   request: { headers: Headers },
   options: SecurityHeaderOptions = {},
 ): Record<string, string> {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = resolveRequestId(request);
   return buildResponseSecurityHeaders(requestId, options);
 }
