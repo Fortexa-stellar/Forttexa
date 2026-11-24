@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { recordRateLimitRejection } from "@/lib/observability/metrics";
+import { resolveClientIp } from "@/lib/security/client-ip";
 import {
   clearSharedRateLimits,
   consumeSharedRateLimit,
@@ -28,19 +29,9 @@ export type RateLimitResult = {
 
 const buckets = new Map<string, BucketState>();
 
-function getClientIp(request: NextRequest) {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0]?.trim() ?? "unknown";
-  }
-
-  const realIp = request.headers.get("x-real-ip");
-  return realIp?.trim() || "unknown";
-}
-
 export async function consumeRateLimit(request: NextRequest, config: BucketConfig): Promise<RateLimitResult> {
   const now = Date.now();
-  const ip = getClientIp(request);
+  const ip = resolveClientIp(request.headers);
   const bucketKey = `${config.key}:${ip}`;
   const useSharedState = isSharedSecurityStateEnabled();
 

@@ -42,7 +42,7 @@ async function issueChallenge(publicKey: string) {
 function loginRequest(body: unknown, ip = "127.0.0.1") {
   return new NextRequest("http://localhost/api/auth/login", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": ip },
+    headers: { "content-type": "application/json", "x-real-ip": ip },
     body: JSON.stringify(body),
   });
 }

@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   clearLoginFailures,
   isLoginLocked,
+  readClientIp,
   registerLoginFailure,
   resetLoginLockoutClock,
   resetLoginLockoutStore,
@@ -80,5 +81,32 @@ describe("login lockout", () => {
 
     clock.advance(61_000);
     expect((await isLoginLocked(email, ip)).locked).toBe(false);
+  });
+});
+
+describe("login lockout client IP trust", () => {
+  afterEach(() => {
+    delete process.env.FORTEXA_TRUSTED_PROXY;
+  });
+
+  it("ignores spoofed Forwarded headers by default", () => {
+    const headers = new Headers({
+      "x-forwarded-for": "198.51.100.9",
+      forwarded: "for=198.51.100.9",
+      "x-real-ip": "203.0.113.40",
+    });
+
+    expect(readClientIp(headers)).toBe("203.0.113.40");
+  });
+
+  it("honors X-Forwarded-For when FORTEXA_TRUSTED_PROXY is enabled", () => {
+    process.env.FORTEXA_TRUSTED_PROXY = "true";
+
+    const headers = new Headers({
+      "x-forwarded-for": "198.51.100.9, 10.0.0.1",
+      "x-real-ip": "203.0.113.40",
+    });
+
+    expect(readClientIp(headers)).toBe("198.51.100.9");
   });
 });

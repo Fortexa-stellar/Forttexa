@@ -1,3 +1,5 @@
+import { parseBoundedInteger } from "@/lib/env/bounded-integer";
+import { resolveClientIp } from "@/lib/security/client-ip";
 import {
   clearSharedLockouts,
   isSharedSecurityStateEnabled,
@@ -5,7 +7,6 @@ import {
   removeSharedLockout,
   writeSharedLockout,
 } from "@/lib/security/shared-security-state";
-import { parseBoundedInteger } from "@/lib/env/bounded-integer";
 
 type LockoutRecord = {
   attempts: number;
@@ -51,12 +52,7 @@ function keyOf(email: string, ip: string) {
 }
 
 export function readClientIp(headers: Headers) {
-  const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0]?.trim() ?? "unknown";
-  }
-
-  return headers.get("x-real-ip")?.trim() ?? "unknown";
+  return resolveClientIp(headers);
 }
 
 export async function isLoginLocked(email: string, ip: string) {

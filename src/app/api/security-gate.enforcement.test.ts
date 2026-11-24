@@ -97,7 +97,7 @@ function jsonRequest(url: string, body: unknown, ip = "10.77.0.1") {
     headers: {
       "content-type": "application/json",
       cookie: operatorCookie(),
-      "x-forwarded-for": ip,
+      "x-real-ip": ip,
     },
     body: JSON.stringify(body),
   });
