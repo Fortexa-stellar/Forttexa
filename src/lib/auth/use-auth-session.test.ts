@@ -41,6 +41,7 @@ const WALLET = `G${"A".repeat(55)}`;
 
 function renderSession() {
   hookIndex = 0;
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   return useAuthSession();
 }
 
