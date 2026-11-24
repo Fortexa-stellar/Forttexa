@@ -174,6 +174,21 @@ Simulation is strictly read-only: it never saves the policy and never consumes u
 4. Submit signed tx: `POST /api/stellar/submit-signed` with the build response's `decisionId`, `quoteExpiresAt`, and `buildAuthorization` alongside `signedXdr`. Submit reloads the decision and rejects an expired quote or a build token that does not match the signed transaction.
 5. Explorer URL is returned and shown as clickable link.
 
+#### Unknown request fields
+
+`POST /api/decision`, `POST /api/stellar/build-payment` and `POST /api/stellar/submit-signed` use strict request schemas (including `action`, `paymentQuoteInput` and `decisionReceipt`): a field the schema does not define is rejected instead of silently ignored, so a misspelled field such as `destinaton` can never be dropped. The response is `400` with the route's usual `error` message plus:
+
+```json
+{
+  "error": "Invalid payment build request.",
+  "code": "UNKNOWN_FIELDS",
+  "unknownFields": ["destinaton"],
+  "omittedUnknownFieldCount": 0
+}
+```
+
+`unknownFields` lists field names only (nested ones use dot notation, e.g. `decisionReceipt.reciptHash`), sorted, at most 10. Values are never echoed, and names that are not plain identifiers (up to 64 characters of `A-Z a-z 0-9 _`) are counted in `omittedUnknownFieldCount` instead. Any other validation problems in the same request are returned under `details`. All documented payloads are unchanged; `submit-signed` also accepts the documented build-response fields `decisionId`, `quoteExpiresAt` and `buildAuthorization`.
+
 #### Quote-to-XDR trust boundary
 
 The policy decision authorizes a fixed payment quote (destination, amount, asset, memo, network). `POST /api/stellar/build-payment` is the enforcement gate: it loads the audit entry by `auditEntryId`, confirms the decision is `APPROVE`/`WARN`, and rejects any request whose fields diverge from the stored quote.
