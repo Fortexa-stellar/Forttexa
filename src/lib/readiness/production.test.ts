@@ -272,6 +272,26 @@ describe("production readiness", () => {
     expect(report.issues.map((issue) => issue.setting)).not.toContain("FORTEXA_BLOCKLIST_URL");
   });
 
+  it("rejects an unsafe production session cookie Secure override", () => {
+    const report = checkProductionReadiness(
+      {
+        ...validProductionEnv,
+        FORTEXA_SESSION_COOKIE_SECURE: "false",
+      },
+      { cwd: "/srv/fortexa" }
+    );
+
+    expect(report.ok).toBe(false);
+    expect(report.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          setting: "FORTEXA_SESSION_COOKIE_SECURE",
+          message: expect.stringContaining("Secure"),
+        }),
+      ])
+    );
+  });
+
   it.each([
     ["", "required in production"],
     ["   ", "required in production"],

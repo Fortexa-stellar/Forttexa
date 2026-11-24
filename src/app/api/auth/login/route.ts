@@ -1,15 +1,15 @@
-import { readJsonBody } from "@/lib/http/read-json-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { clearLoginFailures, isLoginLocked, readClientIp, registerLoginFailure } from "@/lib/auth/login-lockout";
-import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
+import { startSession } from "@/lib/auth/session";
+import { setSessionCookie } from "@/lib/auth/session-cookie";
 import { verifyWalletChallenge } from "@/lib/auth/wallet-challenge";
 import { normalizeWalletPublicKey, resolveRoleByWallet } from "@/lib/auth/wallet-role";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
-import { upsertUserWallet } from "@/lib/storage/user-wallet-store";
+import { upsertUserWallet, WalletAlreadyBoundError } from "@/lib/storage/user-wallet-store";
 import { logValidationFailure, toPublicValidationDetails } from "@/lib/validation/errors";
 
 const loginSchema = z.object({
@@ -116,8 +116,9 @@ export async function POST(request: NextRequest) {
     });
 
     if (!challengeResult.ok) {
-      const countsAsFailure = challengeResult.code === "invalid_signature";
-      const failure = countsAsFailure ? await registerLoginFailure(userId, clientIp) : null;
+      if (challengeResult.code === "invalid_signature") {
+        await registerLoginFailure(userId, clientIp);
+      }
 
       logWarn("Auth login challenge verification failed", {
         ...context,
@@ -134,10 +135,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const roles = resolveRolesByWallet(normalizedWallet);
+    const role = resolveRoleByWallet(normalizedWallet);
 
     if (!role) {
-      const failure = await registerLoginFailure(userId, clientIp);
+      await registerLoginFailure(userId, clientIp);
       logWarn("Auth login unknown wallet", { ...context, wallet: normalizedWallet });
       return respond(request, {
         route: "/api/auth/login",
@@ -156,8 +157,7 @@ export async function POST(request: NextRequest) {
 
     const session = startSession({
       email: `wallet:${normalizedWallet}`,
-      role: roles.includes("operator") ? "operator" : roles[0],
-      roles,
+      role,
       userId,
       publicKey: normalizedWallet,
     });
@@ -168,8 +168,7 @@ export async function POST(request: NextRequest) {
       status: 200,
       body: {
         ok: true,
-        role: roles.includes("operator") ? "operator" : roles[0],
-        roles,
+        role,
         wallet: normalizedWallet,
       },
       headers: rateLimitHeaders(rate),
