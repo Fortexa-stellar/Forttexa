@@ -26,6 +26,7 @@ import { getPolicyConfig } from "@/lib/storage/policy-store";
 import { buildPaymentQuoteFromDecision } from "@/lib/stellar/verify-payment-quote";
 import type { AuditEntry } from "@/lib/types/domain";
 import { decisionRequestSchema } from "@/lib/validation/schemas";
+import { buildUnknownFieldsBody } from "@/lib/validation/unknown-fields";
 
 export async function POST(request: NextRequest) {
   const startedAtMs = Date.now();
@@ -101,10 +102,11 @@ export async function POST(request: NextRequest) {
         route: "/api/decision",
         startedAtMs,
         status: 400,
-        body: {
-          error: "Invalid decision request body.",
-          details: parsedBody.error.flatten(),
-        },
+        body:
+          buildUnknownFieldsBody(parsedBody.error, "Invalid decision request body.") ?? {
+            error: "Invalid decision request body.",
+            details: parsedBody.error.flatten(),
+          },
         headers: rateLimitHeaders(rate),
       });
     }

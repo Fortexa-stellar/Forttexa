@@ -37,6 +37,7 @@ import {
   logValidationFailure,
   toPublicValidationDetails,
 } from "@/lib/validation/errors";
+import { buildUnknownFieldsBody } from "@/lib/validation/unknown-fields";
 import { normalizeHorizonError } from "@/lib/utils/horizonErrors";
 import { verifyPaymentAgainstQuote } from "@/lib/stellar/verify-payment-quote";
 
@@ -397,10 +398,11 @@ export async function POST(request: NextRequest) {
         route: "/api/stellar/submit-signed",
         startedAtMs,
         status: 400,
-        body: {
-          error: "Invalid signed transaction payload.",
-          details: toPublicValidationDetails(parsedPayload.error),
-        },
+        body:
+          buildUnknownFieldsBody(parsedPayload.error, "Invalid signed transaction payload.") ?? {
+            error: "Invalid signed transaction payload.",
+            details: toPublicValidationDetails(parsedPayload.error),
+          },
         headers: rateLimitHeaders(rate),
       });
     }

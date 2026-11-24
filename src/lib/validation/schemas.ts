@@ -77,17 +77,22 @@ export const stellarPublicKeySchema = z
   .min(56)
   .max(56);
 
-const paymentQuoteInputSchema = z.object({
+const paymentQuoteInputSchema = z.strictObject({
   destination: stellarPublicKeySchema,
   memo: withMemoByteLimit(z.string()).optional(),
   network: z.enum(["testnet"]).default("testnet"),
   asset: z.enum(["native"]).default("native"),
 });
 
+/**
+ * Strict: unrecognized fields (at the top level or inside `action` /
+ * `paymentQuoteInput`) are rejected rather than silently dropped, so a
+ * misspelled field can never be ignored. See `buildUnknownFieldsBody`.
+ */
 export const decisionRequestSchema = z
-  .object({
+  .strictObject({
     scenarioId: z.string().min(1).max(120).optional(),
-    action: agentActionSchema.optional(),
+    action: strictAgentActionSchema.optional(),
     approvedByHuman: z.boolean().optional(),
     paymentQuoteInput: paymentQuoteInputSchema.optional(),
   })
@@ -130,7 +135,15 @@ export const stellarBuildPaymentRequestSchema = z.object({
   requestTimestampMs: z.number().finite().optional(),
 });
 
-const decisionReceiptSchema = z.object({
+/**
+ * Strict variant used by `POST /api/stellar/build-payment`: unrecognized
+ * fields are rejected instead of silently dropped. (`/api/stellar/pay` keeps
+ * the lenient schema above.)
+ */
+export const strictStellarBuildPaymentRequestSchema =
+  stellarBuildPaymentRequestSchema.strict();
+
+const decisionReceiptSchema = z.strictObject({
   destination: stellarPublicKeySchema,
   amountXLM: z.string().refine(isValidPaymentAmountString, {
     message: PAYMENT_AMOUNT_ERROR,
@@ -144,10 +157,20 @@ const decisionReceiptSchema = z.object({
     .optional(),
 });
 
-export const stellarSubmitSignedRequestSchema = z.object({
+/**
+ * Strict: unrecognized fields (including inside `decisionReceipt`) are
+ * rejected instead of silently dropped. `decisionId`, `quoteExpiresAt` and
+ * `buildAuthorization` are the build-response fields the README documents
+ * alongside `signedXdr`; they are accepted (bounded strings) so documented
+ * payloads keep working.
+ */
+export const stellarSubmitSignedRequestSchema = z.strictObject({
   signedXdr: z.string().min(20).max(120000),
   decisionReceipt: decisionReceiptSchema,
   idempotencyKey: idempotencyKeySchema.optional(),
+  decisionId: z.string().min(1).max(128).optional(),
+  quoteExpiresAt: z.string().min(1).max(64).optional(),
+  buildAuthorization: z.string().min(1).max(4096).optional(),
 });
 
 export const agentPlanRequestSchema = z.object({

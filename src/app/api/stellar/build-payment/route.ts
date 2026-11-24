@@ -13,7 +13,11 @@ import { paymentExceedsPerTxCap } from "@/lib/policy/engine";
 import { getAuditEntryById } from "@/lib/storage/audit-store";
 import { getPolicyConfig } from "@/lib/storage/policy-store";
 import { getUserWallet } from "@/lib/storage/user-wallet-store";
-import { stellarBuildPaymentRequestSchema } from "@/lib/validation/schemas";
+import {
+  stellarBuildPaymentRequestSchema,
+  strictStellarBuildPaymentRequestSchema,
+} from "@/lib/validation/schemas";
+import { buildUnknownFieldsBody } from "@/lib/validation/unknown-fields";
 import {
   logValidationFailure,
   toPublicValidationDetails,
@@ -26,6 +30,8 @@ export async function POST(request: NextRequest) {
 
   let gateDestination: string | undefined;
   if (bodyResult.ok) {
+    // Lenient on purpose: the gate only needs the destination for its blocklist
+    // check. Unknown fields are rejected by the strict parse after auth below.
     const preview = stellarBuildPaymentRequestSchema.safeParse(bodyResult.data);
     gateDestination = preview.success ? preview.data.destination : undefined;
   }
@@ -91,7 +97,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const parsedPayload = stellarBuildPaymentRequestSchema.safeParse(
+    const parsedPayload = strictStellarBuildPaymentRequestSchema.safeParse(
       bodyResult.data,
     );
 
@@ -103,7 +109,7 @@ export async function POST(request: NextRequest) {
         bodyResult.data,
       );
       return NextResponse.json(
-        {
+        buildUnknownFieldsBody(parsedPayload.error, "Invalid payment build request.") ?? {
           error: "Invalid payment build request.",
           details: parsedPayload.error.flatten(),
         },
