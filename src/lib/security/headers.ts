@@ -49,6 +49,7 @@ export function buildResponseSecurityHeaders(
 
   if (options.noStore) {
     headers["Cache-Control"] = "no-store";
+    headers["Pragma"] = "no-cache";
   }
 
   return headers;

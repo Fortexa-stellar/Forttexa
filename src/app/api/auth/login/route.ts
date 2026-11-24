@@ -3,13 +3,14 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { clearLoginFailures, isLoginLocked, readClientIp, registerLoginFailure } from "@/lib/auth/login-lockout";
-import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
+import { AUTH_COOKIE_KEY, createSessionToken, startSession } from "@/lib/auth/session";
+import { setSessionCookie } from "@/lib/auth/session-cookie";
 import { verifyWalletChallenge } from "@/lib/auth/wallet-challenge";
-import { normalizeWalletPublicKey, resolveRoleByWallet } from "@/lib/auth/wallet-role";
+import { normalizeWalletPublicKey, resolveRoleByWallet, resolveRolesByWallet } from "@/lib/auth/wallet-role";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
-import { upsertUserWallet } from "@/lib/storage/user-wallet-store";
+import { upsertUserWallet, WalletAlreadyBoundError } from "@/lib/storage/user-wallet-store";
 import { logValidationFailure, toPublicValidationDetails } from "@/lib/validation/errors";
 
 const loginSchema = z.object({
@@ -47,11 +48,14 @@ export async function POST(request: NextRequest) {
   const context = getRequestLogContext(request, "/api/auth/login");
   const clientIp = readClientIp(request.headers);
   let requestBody: unknown;
+  let requestBodyTooLarge = false;
   const respond: typeof jsonWithRequestContext = (incoming, input) =>
     jsonWithRequestContext(incoming, {
+      noStore: true,
       ...input,
       logExchange: true,
       requestBody,
+      requestBodyTooLarge,
     });
 
   const rate = await consumeRateLimit(request, {
@@ -72,7 +76,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const rawBody = (await request.json().catch(() => ({}))) as unknown;
+    const bodyResult = await readJsonBody(request);
+    if (!bodyResult.ok) {
+      requestBodyTooLarge = true;
+      logWarn("Auth login payload too large", { ...context, ip: clientIp });
+      return respond(request, {
+        route: "/api/auth/login",
+        startedAtMs,
+        status: 413,
+        body: { error: bodyResult.error, code: bodyResult.code },
+        headers: rateLimitHeaders(rate),
+      });
+    }
+
+    const rawBody = bodyResult.data;
     requestBody = rawBody;
     const parsed = loginSchema.safeParse(rawBody);
 
@@ -135,6 +152,7 @@ export async function POST(request: NextRequest) {
     }
 
     const roles = resolveRolesByWallet(normalizedWallet);
+    const role = resolveRoleByWallet(normalizedWallet);
 
     if (!role) {
       const failure = await registerLoginFailure(userId, clientIp);
@@ -173,8 +191,6 @@ export async function POST(request: NextRequest) {
         wallet: normalizedWallet,
       },
       headers: rateLimitHeaders(rate),
-      // The response sets a session cookie, so it must never be cached.
-      noStore: true,
     });
 
     setSessionCookie(response, session.token);
@@ -186,7 +202,7 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     if (error instanceof WalletAlreadyBoundError) {
-      return jsonWithRequestContext(request, {
+      return respond(request, {
         route: "/api/auth/login",
         startedAtMs,
         status: 409,
