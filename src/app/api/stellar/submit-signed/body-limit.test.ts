@@ -6,6 +6,7 @@ import { POST as LoginPOST } from "@/app/api/auth/login/route";
 import { POST as PolicyPOST } from "@/app/api/policy/route";
 import { POST as RollbackPOST } from "@/app/api/policy/rollback/route";
 import { POST as DecisionPOST } from "@/app/api/decision/route";
+import { POST as BuildPaymentPOST } from "@/app/api/stellar/build-payment/route";
 
 import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
 import { DEFAULT_JSON_BODY_MAX_BYTES } from "@/lib/http/read-json-body";
@@ -15,6 +16,18 @@ function signerCookie() {
   const token = createSessionToken({
     email: "signer@fortexa.local",
     role: "signer",
+    userId: "submit-signed-body-limit-signer",
+    expiresInSeconds: 120,
+  });
+
+  return `${AUTH_COOKIE_KEY}=${token}`;
+}
+
+function operatorCookie() {
+  process.env.FORTEXA_AUTH_SECRET = "submit-signed-body-limit-secret";
+  const token = createSessionToken({
+    email: "operator@fortexa.local",
+    role: "operator",
     userId: "submit-signed-body-limit-operator",
     expiresInSeconds: 120,
   });
@@ -37,8 +50,9 @@ describe("POST /api/stellar/submit-signed body limits", () => {
     const response = await POST(request);
     expect(response.status).toBe(413);
 
-    const payload = (await response.json()) as { error: string };
+    const payload = (await response.json()) as { error: string; code?: string };
     expect(payload.error).toContain("byte limit");
+    expect(payload.code).toBe("PAYLOAD_TOO_LARGE");
   });
 
   it("returns validation error for malformed small JSON", async () => {
@@ -55,7 +69,7 @@ describe("POST /api/stellar/submit-signed body limits", () => {
     expect(response.status).toBe(400);
 
     const payload = (await response.json()) as { error: string };
-    expect(payload.error).toBe("Invalid signed transaction submission.");
+    expect(payload.error).toBe("Invalid signed transaction payload.");
   });
 });
 
@@ -93,8 +107,9 @@ describe("Body limits for other mutating routes", () => {
     });
     const response = await LoginPOST(request);
     expect(response.status).toBe(413);
-    const payload = await response.json();
+    const payload = (await response.json()) as { error: string; code?: string };
     expect(payload.error).toContain("byte limit");
+    expect(payload.code).toBe("PAYLOAD_TOO_LARGE");
   });
 
   it("returns 413 for oversized JSON payloads on policy create", async () => {
@@ -108,7 +123,7 @@ describe("Body limits for other mutating routes", () => {
     });
     const response = await PolicyPOST(request);
     expect(response.status).toBe(413);
-    const payload = await response.json();
+    const payload = (await response.json()) as { error: string };
     expect(payload.error).toContain("byte limit");
   });
 
@@ -123,7 +138,7 @@ describe("Body limits for other mutating routes", () => {
     });
     const response = await RollbackPOST(request);
     expect(response.status).toBe(413);
-    const payload = await response.json();
+    const payload = (await response.json()) as { error: string };
     expect(payload.error).toContain("byte limit");
   });
 
@@ -138,7 +153,24 @@ describe("Body limits for other mutating routes", () => {
     });
     const response = await DecisionPOST(request);
     expect(response.status).toBe(413);
-    const payload = await response.json();
+    const payload = (await response.json()) as { error: string; code?: string };
     expect(payload.error).toContain("byte limit");
+    expect(payload.code).toBe("PAYLOAD_TOO_LARGE");
+  });
+
+  it("returns 413 for oversized JSON payloads on build-payment", async () => {
+    const request = new NextRequest("http://localhost/api/stellar/build-payment", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: signerCookie(),
+      },
+      body: `{"destination":"${payloadStr}"}`,
+    });
+    const response = await BuildPaymentPOST(request);
+    expect(response.status).toBe(413);
+    const payload = (await response.json()) as { error: string; code?: string };
+    expect(payload.error).toContain("byte limit");
+    expect(payload.code).toBe("PAYLOAD_TOO_LARGE");
   });
 });

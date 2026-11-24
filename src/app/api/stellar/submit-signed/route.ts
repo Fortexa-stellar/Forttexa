@@ -377,7 +377,7 @@ export async function POST(request: NextRequest) {
         route: "/api/stellar/submit-signed",
         startedAtMs,
         status: 413,
-        body: { error: bodyResult.error },
+        body: { error: bodyResult.error, code: "PAYLOAD_TOO_LARGE" },
         headers: rateLimitHeaders(rate),
       });
     }
