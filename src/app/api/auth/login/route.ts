@@ -1,15 +1,15 @@
-import { readJsonBody } from "@/lib/http/read-json-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { clearLoginFailures, isLoginLocked, readClientIp, registerLoginFailure } from "@/lib/auth/login-lockout";
-import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
+import { startSession } from "@/lib/auth/session";
+import { setSessionCookie } from "@/lib/auth/session-cookie";
 import { verifyWalletChallenge } from "@/lib/auth/wallet-challenge";
-import { normalizeWalletPublicKey, resolveRoleByWallet } from "@/lib/auth/wallet-role";
+import { normalizeWalletPublicKey, resolveRolesByWallet } from "@/lib/auth/wallet-role";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
-import { upsertUserWallet } from "@/lib/storage/user-wallet-store";
+import { upsertUserWallet, WalletAlreadyBoundError } from "@/lib/storage/user-wallet-store";
 import { logValidationFailure, toPublicValidationDetails } from "@/lib/validation/errors";
 
 const loginSchema = z.object({
@@ -39,6 +39,13 @@ function lockedResponse(retryAfterSeconds: number) {
   return {
     error: LOCKED_ERROR,
     retryAfterSeconds: Math.max(1, retryAfterSeconds),
+  };
+}
+
+function lockoutHeaders(rate: ReturnType<typeof rateLimitHeaders>, retryAfterSeconds: number) {
+  return {
+    ...rate,
+    "Retry-After": String(Math.max(1, retryAfterSeconds)),
   };
 }
 
@@ -102,10 +109,7 @@ export async function POST(request: NextRequest) {
         startedAtMs,
         status: 423,
         body: lockedResponse(lockState.retryAfterSeconds),
-        headers: {
-          ...rateLimitHeaders(rate),
-          "Retry-After": String(Math.max(1, lockState.retryAfterSeconds)),
-        },
+        headers: lockoutHeaders(rateLimitHeaders(rate), lockState.retryAfterSeconds),
       });
     }
 
@@ -125,20 +129,46 @@ export async function POST(request: NextRequest) {
         code: challengeResult.code,
       });
 
+      if (failure?.justLocked) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((failure.lockedUntilMs - Date.now()) / 1000));
+        return respond(request, {
+          route: "/api/auth/login",
+          startedAtMs,
+          status: 423,
+          body: lockedResponse(retryAfterSeconds),
+          headers: lockoutHeaders(rateLimitHeaders(rate), retryAfterSeconds),
+        });
+      }
+
       return respond(request, {
         route: "/api/auth/login",
         startedAtMs,
         status: challengeResult.code === "invalid_signature" ? 401 : 400,
-        body: { error: challengeErrorMessage(challengeResult.code) },
+        body: {
+          error: challengeErrorMessage(challengeResult.code),
+          code: challengeResult.code,
+        },
         headers: rateLimitHeaders(rate),
       });
     }
 
     const roles = resolveRolesByWallet(normalizedWallet);
 
-    if (!role) {
+    if (roles.length === 0) {
       const failure = await registerLoginFailure(userId, clientIp);
       logWarn("Auth login unknown wallet", { ...context, wallet: normalizedWallet });
+
+      if (failure.justLocked) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((failure.lockedUntilMs - Date.now()) / 1000));
+        return respond(request, {
+          route: "/api/auth/login",
+          startedAtMs,
+          status: 423,
+          body: lockedResponse(retryAfterSeconds),
+          headers: lockoutHeaders(rateLimitHeaders(rate), retryAfterSeconds),
+        });
+      }
+
       return respond(request, {
         route: "/api/auth/login",
         startedAtMs,
@@ -148,6 +178,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const role = roles.includes("operator") ? "operator" : roles[0];
+
     await upsertUserWallet(userId, {
       publicKey: normalizedWallet,
       source: "external",
@@ -156,10 +188,8 @@ export async function POST(request: NextRequest) {
 
     const session = startSession({
       email: `wallet:${normalizedWallet}`,
-      role: roles.includes("operator") ? "operator" : roles[0],
-      roles,
+      role,
       userId,
-      publicKey: normalizedWallet,
     });
 
     const response = respond(request, {
@@ -168,7 +198,7 @@ export async function POST(request: NextRequest) {
       status: 200,
       body: {
         ok: true,
-        role: roles.includes("operator") ? "operator" : roles[0],
+        role,
         roles,
         wallet: normalizedWallet,
       },

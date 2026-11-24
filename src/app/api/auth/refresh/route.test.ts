@@ -95,8 +95,10 @@ describe("/api/auth/refresh route", () => {
     const response = await POST(refreshRequest(operatorCookie()));
     expect(response.status).toBe(401);
 
-    const payload = (await response.json()) as { error?: string };
+    const payload = (await response.json()) as { error?: string; retryAfterSeconds?: number };
     expect(payload.error).toMatch(/locked/i);
+    expect(payload.retryAfterSeconds).toBeGreaterThan(0);
+    expect(response.headers.get("Retry-After")).toBe(String(payload.retryAfterSeconds));
     expect(response.headers.get("set-cookie") ?? "").not.toContain(AUTH_COOKIE_KEY);
   });
 

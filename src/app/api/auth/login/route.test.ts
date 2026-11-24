@@ -11,6 +11,7 @@ import {
   resetLoginLockoutStore,
   setLoginLockoutClock,
 } from "@/lib/auth/login-lockout";
+import { buildSecurityHeaders } from "@/lib/security/headers";
 import { POST as createChallenge } from "@/app/api/auth/challenge/route";
 import { POST as login } from "@/app/api/auth/login/route";
 
@@ -62,6 +63,8 @@ describe("/api/auth/login challenge-signature flow", () => {
     resetLoginLockoutClock();
     await resetWalletChallengeStore();
     await resetLoginLockoutStore();
+    const { resetRateLimitStore } = await import("@/lib/security/rate-limit");
+    await resetRateLimitStore();
   });
 
   it("issues a session cookie after a valid wallet signature", async () => {
@@ -108,7 +111,7 @@ describe("/api/auth/login challenge-signature flow", () => {
 
     expect(second.status).toBe(400);
     const payload = (await second.json()) as { error: string };
-    expect(payload.error).contain("already used");
+    expect(payload.error).toContain("already used");
   });
 
   it("rejects expired challenges", async () => {
@@ -120,7 +123,7 @@ describe("/api/auth/login challenge-signature flow", () => {
     const challenge = await issueChallenge(AUTHORIZED_PUBLIC_KEY);
     const signature = signSep53Message(AUTHORIZED_SECRET, challenge.message);
 
-    vi.advanceTimesBy(61_000);
+    vi.advanceTimersByTime(61_000);
 
     const response = await login(
       loginRequest({
@@ -276,6 +279,35 @@ describe("/api/auth/login challenge-signature flow", () => {
       const payload = (await response.json()) as { error: string; retryAfterSeconds?: number };
       expect(payload.error).toContain("temporarily locked");
       expect(typeof payload.retryAfterSeconds).toBe("number");
+      expect(payload.retryAfterSeconds).toBeGreaterThan(0);
+      expect(response.headers.get("Retry-After")).toBe(String(payload.retryAfterSeconds));
+    });
+
+    it("returns Retry-After and stable rate_limited code when the login budget is exhausted", async () => {
+      process.env.FORTEXA_AUTH_SECRET = "login-route-test-secret";
+      process.env.FORTEXA_OPERATOR_WALLETS = AUTHORIZED_PUBLIC_KEY;
+
+      const { resetRateLimitStore } = await import("@/lib/security/rate-limit");
+      await resetRateLimitStore();
+
+      let lastStatus = 0;
+      let lastResponse: Response | undefined;
+      for (let i = 0; i < 16; i += 1) {
+        lastResponse = await login(
+          loginRequest({
+            publicKey: AUTHORIZED_PUBLIC_KEY,
+            challengeId: "00000000-0000-4000-8000-000000000000",
+            signature: "not-a-real-signature",
+          })
+        );
+        lastStatus = lastResponse.status;
+      }
+
+      expect(lastStatus).toBe(429);
+      expect(lastResponse?.headers.get("Retry-After")).toMatch(/^[1-9]\d*$/);
+      const payload = (await lastResponse!.json()) as { error: string; code?: string };
+      expect(payload.code).toBe("rate_limited");
+      expect(payload.error).toMatch(/login attempts/i);
     });
 
     it("allows login again after the lock expires", async () => {
@@ -284,7 +316,7 @@ describe("/api/auth/login challenge-signature flow", () => {
 
       process.env.FORTEXA_AUTH_SECRET = "login-route-test-secret";
       process.env.FORTEXA_OPERATOR_WALLETS = AUTHORIZED_PUBLIC_KEY;
-      process.env.FORTEXA_AUTH_MAX_ATTEMPS = "2";
+      process.env.FORTEXA_AUTH_MAX_ATTEMPTS = "2";
       process.env.FORTEXA_AUTH_LOCK_MINUTES = "1";
 
       const userId = `wallet:${AUTHORIZED_PUBLIC_KEY}`;

@@ -49,6 +49,44 @@ describe("rate limit shared state", () => {
   });
 });
 
+describe("rate limit Retry-After boundaries", () => {
+  afterEach(async () => {
+    vi.useRealTimers();
+    vi.resetModules();
+  });
+
+  it("derives Retry-After from the remaining window and omits it when allowed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+
+    const rateLimit = await import("@/lib/security/rate-limit");
+    await rateLimit.resetRateLimitStore();
+
+    const config = { key: "retry-after-boundary", limit: 1, windowMs: 5_000 };
+    const allowed = await rateLimit.consumeRateLimit(requestFromIp("10.0.0.20"), config);
+    expect(allowed.ok).toBe(true);
+    expect(rateLimit.rateLimitHeaders(allowed)["Retry-After"]).toBeUndefined();
+
+    const rejected = await rateLimit.consumeRateLimit(requestFromIp("10.0.0.20"), config);
+    expect(rejected.ok).toBe(false);
+    expect(rejected.retryAfterSeconds).toBe(5);
+    expect(rateLimit.rateLimitHeaders(rejected)["Retry-After"]).toBe("5");
+
+    // 1ms before window end still reports a 1-second delay-seconds value.
+    vi.setSystemTime(new Date(rejected.resetAt - 1));
+    const nearExpiry = await rateLimit.consumeRateLimit(requestFromIp("10.0.0.20"), config);
+    expect(nearExpiry.ok).toBe(false);
+    expect(nearExpiry.retryAfterSeconds).toBe(1);
+    expect(rateLimit.rateLimitHeaders(nearExpiry)["Retry-After"]).toBe("1");
+
+    // Exactly at reset the bucket opens again and Retry-After stays absent.
+    vi.setSystemTime(new Date(rejected.resetAt));
+    const afterReset = await rateLimit.consumeRateLimit(requestFromIp("10.0.0.20"), config);
+    expect(afterReset.ok).toBe(true);
+    expect(rateLimit.rateLimitHeaders(afterReset)["Retry-After"]).toBeUndefined();
+  });
+});
+
 describe("rate limit metrics", () => {
   // Both modules are imported dynamically so they resolve from the same module
   // registry; the shared-state test above calls `vi.resetModules()`.
