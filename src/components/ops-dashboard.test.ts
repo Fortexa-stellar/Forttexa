@@ -91,9 +91,9 @@ async function flushPromises() {
 }
 
 type HealthState = { ok: boolean; timestamp: string; env: Record<string, boolean>; blocklist: Record<string, unknown> } | null;
-type MetricsState = { totals: { totalCount: number; errorCount: number; errorRate: number }; routes: unknown[] } | null;
+type MetricsState = { timestamp?: string | null; totals: { totalCount: number; errorCount: number; errorRate: number }; routes: unknown[] } | null;
 
-describe("OpsDashboard lastRefreshed feature", () => {
+describe("OpsDashboard metrics collection time", () => {
   beforeEach(() => {
     hookIndex = 0;
     states.length = 0;
@@ -119,7 +119,6 @@ describe("OpsDashboard lastRefreshed feature", () => {
   const getError = () => states[5] as string | null;
   const getLoading = () => states[6] as boolean;
   const getTxLoading = () => states[7] as boolean;
-  const getLastRefreshed = () => states[8] as string | null;
 
   function setupSuccessfulFetch() {
     fetchMock.mockImplementation((url: string) => {
@@ -177,16 +176,16 @@ describe("OpsDashboard lastRefreshed feature", () => {
     });
   }
 
-  it("should start with no timestamp before the first successful refresh", () => {
+  it("should start without a collection timestamp before the first refresh", () => {
     setupSuccessfulFetch();
 
     hookIndex = 0;
     OpsDashboard({});
 
-    expect(getLastRefreshed()).toBeNull();
+    expect(getMetrics()).toBeNull();
   });
 
-  it("should display the last refreshed timestamp after a successful refresh", async () => {
+  it("should use the timestamp provided by the metrics response", async () => {
     setupSuccessfulFetch();
 
     hookIndex = 0;
@@ -201,14 +200,14 @@ describe("OpsDashboard lastRefreshed feature", () => {
 
     expect(getLoading()).toBe(false);
     expect(getError()).toBeNull();
-    expect(getLastRefreshed()).toBe("2026-06-29T23:56:21.000Z");
+    expect(getMetrics()?.timestamp).toBe("2026-06-29T23:56:21Z");
     expect(getHealth()).not.toBeNull();
     expect(getHealth()!.ok).toBe(true);
     expect(getMetrics()).not.toBeNull();
     expect(getMetrics()!.totals.totalCount).toBe(10);
   });
 
-  it("should update the last refreshed timestamp after another successful refresh", async () => {
+  it("should retain the server collection time across successful refreshes", async () => {
     setupSuccessfulFetch();
 
     hookIndex = 0;
@@ -218,7 +217,7 @@ describe("OpsDashboard lastRefreshed feature", () => {
     mockEffectCb!();
 
     await flushPromises();
-    expect(getLastRefreshed()).toBe("2026-06-29T23:56:21.000Z");
+    expect(getMetrics()?.timestamp).toBe("2026-06-29T23:56:21Z");
 
     // Advance time and trigger interval refresh
     vi.setSystemTime(new Date("2026-06-29T23:56:30.000Z"));
@@ -229,11 +228,11 @@ describe("OpsDashboard lastRefreshed feature", () => {
 
     await flushPromises();
 
-    expect(getLastRefreshed()).toBe("2026-06-29T23:56:30.000Z");
+    expect(getMetrics()?.timestamp).toBe("2026-06-29T23:56:21Z");
     expect(getError()).toBeNull();
   });
 
-  it("should not update the timestamp if a refresh fails", async () => {
+  it("should preserve the previous collection time if a refresh fails", async () => {
     setupSuccessfulFetch();
 
     hookIndex = 0;
@@ -243,7 +242,7 @@ describe("OpsDashboard lastRefreshed feature", () => {
     mockEffectCb!();
 
     await flushPromises();
-    expect(getLastRefreshed()).toBe("2026-06-29T23:56:21.000Z");
+    expect(getMetrics()?.timestamp).toBe("2026-06-29T23:56:21Z");
 
     // Setup failed fetch for next refresh
     setupFailedFetch();
@@ -256,7 +255,7 @@ describe("OpsDashboard lastRefreshed feature", () => {
     await flushPromises();
 
     // Timestamp should remain unchanged
-    expect(getLastRefreshed()).toBe("2026-06-29T23:56:21.000Z");
+    expect(getMetrics()?.timestamp).toBe("2026-06-29T23:56:21Z");
     expect(getError()).toBe("Failed to fetch ops telemetry.");
   });
 

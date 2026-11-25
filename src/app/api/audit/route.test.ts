@@ -63,4 +63,31 @@ describe("/api/audit route authorization", () => {
     expect(Array.isArray(payload.entries)).toBe(true);
     expect(payload.userId).toBe("audit-viewer-id");
   });
+
+  it("rejects unsafe pagination values with a stable validation code", async () => {
+    const request = new NextRequest("http://localhost/api/audit?cursor=9007199254740992", {
+      headers: { cookie: operatorCookie() },
+    });
+    const response = await GET(request);
+    const payload = (await response.json()) as { code: string };
+
+    expect(response.status).toBe(400);
+    expect(payload.code).toBe("invalid_pagination_parameters");
+  });
+
+  it("returns at most the requested page size and its next cursor", async () => {
+    const request = new NextRequest("http://localhost/api/audit?limit=1&cursor=0", {
+      headers: { cookie: operatorCookie() },
+    });
+    const response = await GET(request);
+    const payload = (await response.json()) as {
+      entries: unknown[];
+      pagination: { limit: number; offset: number; nextCursor: string | null };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.entries.length).toBeLessThanOrEqual(1);
+    expect(payload.pagination).toMatchObject({ limit: 1, offset: 0 });
+    expect(payload.pagination.nextCursor === null || payload.pagination.nextCursor === "1").toBe(true);
+  });
 });

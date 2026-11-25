@@ -27,7 +27,7 @@ import { OpsDashboard } from "./ops-dashboard";
 
 const fetchSpy = vi.fn();
 
-function renderDashboard(snapshot?: MetricsSnapshot): string {
+function renderDashboard(snapshot?: Parameters<typeof OpsDashboard>[0]["initialMetrics"]): string {
   return renderToStaticMarkup(createElement(OpsDashboard, snapshot ? { initialMetrics: snapshot } : {}));
 }
 
@@ -73,6 +73,17 @@ describe("OpsDashboard metrics snapshot counters", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("displays the server collection time or an unavailable state", () => {
+    const snapshot = getMetricsSnapshot();
+    const timestamp = snapshot.timestamp;
+    const loadedMarkup = renderDashboard(snapshot);
+    const missingTimestampMarkup = renderDashboard({ ...snapshot, timestamp: undefined });
+
+    expect(loadedMarkup).toContain("Metrics collected: <time");
+    expect(loadedMarkup).toContain(timestamp);
+    expect(missingTimestampMarkup).toContain("Metrics collected: Unavailable");
   });
 
   it("renders the counters carried by the snapshot without fetching anything", () => {
