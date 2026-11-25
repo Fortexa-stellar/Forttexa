@@ -965,6 +965,7 @@ export function PolicyEditor({
                 variant="outline"
                 onClick={discardLocalChangesAndReload}
                 disabled={loading}
+                data-testid="reload-latest-policy-button"
               >
                 Reload latest &amp; discard my changes
               </Button>
@@ -981,7 +982,11 @@ export function PolicyEditor({
         </Alert>
       ) : null}
 
-      <Alert className="border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.05)]">
+      <Alert
+        className="border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.05)]"
+        role="status"
+        data-testid="policy-status"
+      >
         <AlertTitle>Policy status</AlertTitle>
         <AlertDescription>
           {status}
