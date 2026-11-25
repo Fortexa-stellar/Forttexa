@@ -39,8 +39,7 @@ import { useAuthSession } from "@/lib/auth/use-auth-session";
 
 const WALLET = `G${"A".repeat(55)}`;
 
-function renderSession() {
-  hookIndex = 0;
+function useRenderSession() {
   return useAuthSession();
 }
 
@@ -69,14 +68,17 @@ describe("useAuthSession refresh", () => {
         json: async () => ({ authenticated: false }),
       });
 
-    await renderSession().refresh();
-    const authenticated = renderSession();
+    hookIndex = 0;
+    await useRenderSession().refresh();
+    hookIndex = 0;
+    const authenticated = useRenderSession();
     expect(authenticated.authenticated).toBe(true);
     expect(authenticated.role).toBe("operator");
     expect(authenticated.wallet).toBe(WALLET);
 
     await authenticated.refresh();
-    const signedOut = renderSession();
+    hookIndex = 0;
+    const signedOut = useRenderSession();
     expect(signedOut.authenticated).toBe(false);
     expect(signedOut.email).toBeNull();
     expect(signedOut.role).toBeNull();
