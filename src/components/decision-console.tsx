@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
   Sparkles,
@@ -111,6 +111,10 @@ export function DecisionConsole() {
   const [generatedAction, setGeneratedAction] = useState<AgentAction | null>(null);
   const [generatingAction, setGeneratingAction] = useState(false);
   const [preparingXdr, setPreparingXdr] = useState(false);
+  // Synchronous in-flight gate for the evaluate action. Unlike the `loading`
+  // state, a ref is read and written immediately, so a fast double-click that
+  // lands before React re-renders cannot start a second decision request.
+  const decisionInFlight = useRef(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [signError, setSignError] = useState<{ code: FreighterSignErrorCode; message: string } | null>(null);
 
@@ -178,6 +182,11 @@ export function DecisionConsole() {
       setMessage("Human approval applies only after REQUIRE_APPROVAL decision.");
       return;
     }
+
+    // Gate the evaluate action on its in-flight state so a fast second click
+    // cannot send another decision request while one is already pending.
+    if (decisionInFlight.current) return;
+    decisionInFlight.current = true;
 
     setLoading(true);
     setMessage(null);
@@ -252,6 +261,7 @@ export function DecisionConsole() {
       setMessage(err);
       pushToast("error", err);
     } finally {
+      decisionInFlight.current = false;
       setLoading(false);
     }
   }
