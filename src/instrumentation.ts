@@ -1,7 +1,7 @@
-import { ensureDatabaseReady } from "@/lib/storage/db";
-
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    await ensureDatabaseReady();
+    // Keep the database driver out of the Edge instrumentation bundle.
+    const { registerNodeInstrumentation } = await import("./instrumentation.node");
+    await registerNodeInstrumentation();
   }
 }

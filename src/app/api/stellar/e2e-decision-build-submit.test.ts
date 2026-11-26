@@ -42,8 +42,12 @@ vi.mock("@stellar/stellar-sdk", async () => {
 });
 
 // Keep this fixture focused on the API handoff; the analyzer has separate tests.
-vi.mock("@/lib/decision/engine", () => ({
-  evaluateDecision: vi.fn(async (action: { amountXLM: number }) => ({
+vi.mock("@/lib/decision/engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/decision/engine")>();
+
+  return {
+    ...actual,
+    evaluateDecision: vi.fn(async (action: { amountXLM: number }) => ({
     decision: action.amountXLM === 95 ? "WARN" : "APPROVE",
     explanation: "Fixture decision",
     triggeredPolicies: [],
@@ -51,8 +55,9 @@ vi.mock("@/lib/decision/engine", () => ({
     riskFindings: [],
     requiresManualApproval: false,
     analyzerStatus: { isDegraded: false },
-  })),
-}));
+    })),
+  };
+});
 
 import { Account, Keypair, Networks, TransactionBuilder } from "@stellar/stellar-sdk";
 import { NextRequest } from "next/server";

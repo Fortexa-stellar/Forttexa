@@ -104,6 +104,33 @@ export function isSessionGenerationCurrent(identity: SessionIdentity & { generat
   return identity.generation >= record.generation;
 }
 
+/**
+ * Revoke a session record only when the caller presents its current
+ * generation. A stale copy from an old tab must not be able to invalidate the
+ * newer token at the signature layer; it still revokes the shared sid, which
+ * is what stops the session from being used.
+ */
+export function revokeCurrentSessionGeneration(
+  identity: SessionIdentity & { generation: number },
+): boolean {
+  const nowMs = Date.now();
+  const key = sessionRecordKey(identity);
+  const existing = records.get(key);
+
+  if (!existing || existing.revoked || existing.generation !== identity.generation) {
+    return false;
+  }
+
+  records.set(key, {
+    ...existing,
+    generation: REVOKED_GENERATION,
+    revoked: true,
+    expiresAtMs: Math.max(existing.expiresAtMs, nowMs + REVOCATION_TTL_MS),
+  });
+
+  return true;
+}
+
 export function revokeSession(identity: SessionIdentity): void {
   const nowMs = Date.now();
   pruneExpiredSessions(nowMs);

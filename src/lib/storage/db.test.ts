@@ -17,7 +17,6 @@ const { queryMock, endMock, releaseMock, poolCtorMock } = vi.hoisted(() => {
     endMock: end,
     releaseMock: release,
     poolCtorMock: ctor,
-    releaseMock: release,
   };
 });
 
@@ -107,6 +106,6 @@ describe("db storage helper", () => {
     const status = await getDatabaseMigrationStatus();
 
     expect(status).toMatchObject({ configured: true, ready: false, appliedId: null });
-    expect(status.expectedId).toBe("004_wallet_expiration");
+    expect(status.expectedId).toBe("005_audit_chain_sequence");
   });
 });

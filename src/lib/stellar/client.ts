@@ -81,6 +81,7 @@ export function decodeSignedXdrSourceAccount(signedXdr: string): SignedXdrSource
     return { ok: false, reason: "malformed" };
   }
 
+  const isFeeBump = decoded instanceof FeeBumpTransaction;
   if (decoded instanceof FeeBumpTransaction) {
     decoded = decoded.innerTransaction;
   }
@@ -92,7 +93,7 @@ export function decodeSignedXdrSourceAccount(signedXdr: string): SignedXdrSource
         destination: operation.destination,
         amountXLM: operation.amount,
         asset: "native" as const,
-        memo: memoValue === undefined
+        memo: memoValue === undefined || memoValue === null
           ? undefined
           : typeof memoValue === "string"
             ? memoValue
@@ -103,8 +104,46 @@ export function decodeSignedXdrSourceAccount(signedXdr: string): SignedXdrSource
   return {
     ok: true,
     sourceAccount: decoded.source,
-    isFeeBump: false,
+    isFeeBump,
     payment,
+  };
+}
+
+export type SignedXdrDestinationResult =
+  | { ok: true; destination: string; isFeeBump: boolean }
+  | { ok: false; reason: "malformed" };
+
+/**
+ * Decodes a signed transaction XDR and extracts the payment destination so a
+ * blocklist gate can check it before submission. A transaction that moves no
+ * funds has no destination to blocklist and reports an empty string.
+ */
+export function decodeSignedXdrDestination(signedXdr: string): SignedXdrDestinationResult {
+  const { networkPassphrase } = assertStellarNetworkConfig();
+
+  let decoded: Transaction | FeeBumpTransaction;
+  try {
+    decoded = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+  } catch {
+    return { ok: false, reason: "malformed" };
+  }
+
+  const isFeeBump = decoded instanceof FeeBumpTransaction;
+  const operations = (
+    isFeeBump
+      ? (decoded as FeeBumpTransaction).innerTransaction.operations
+      : (decoded as Transaction).operations
+  ) as Array<{ type: string; destination?: string }>;
+
+  const payment = operations.find(
+    (op) =>
+      op.type === "payment" && typeof op.destination === "string",
+  );
+
+  return {
+    ok: true,
+    destination: payment?.destination ?? "",
+    isFeeBump,
   };
 }
 

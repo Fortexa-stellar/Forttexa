@@ -104,6 +104,8 @@ export interface DecisionResult {
   analyzerStatus?: AnalyzerStatus;
   /** Reason code of the security check (analyzer or blocklist) that denied the action. */
   reasonCode?: string;
+  /** Machine-readable id of the first rule that fired, for parity checks. */
+  primaryRuleId?: string | null;
 }
 
 export interface Scenario {
@@ -127,6 +129,8 @@ export interface PaymentQuote {
   asset: StellarAssetId;
   memo: string;
   network: StellarNetworkId;
+  /** Fixed expiry of the authorized quote (ISO 8601). */
+  expiresAt?: string;
   receiptHash?: string;
 }
 

@@ -2,7 +2,15 @@ declare global {
   var MOCK_SESSION_PUBLIC_KEY: string | undefined;
 }
 
-import { Account, Asset, Keypair, Networks, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
+import {
+  Account,
+  Asset,
+  Keypair,
+  Memo,
+  Networks,
+  Operation,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -68,6 +76,7 @@ vi.mock("@/lib/storage/audit-store", () => ({ getAuditEntryById: vi.fn(async () 
 vi.mock("@/lib/stellar/verify-payment-quote", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/stellar/verify-payment-quote")>(),
   isPaymentDecisionCurrent: vi.fn(() => true),
+  verifyPaymentAgainstQuote: verifyQuoteMock,
 }));
 vi.mock("@/lib/stellar/payment-build-authorization", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/stellar/payment-build-authorization")>(),
@@ -130,7 +139,7 @@ function buildSignedXdr(
         amount,
       }),
     )
-    .addMemo(memo ? Memo.text(memo) : undefined)
+    .addMemo(Memo.text(memo))
     .setTimeout(180)
     .build();
   tx.sign(signerKp);
@@ -171,7 +180,9 @@ describe("POST /api/stellar/submit-signed - source wallet verification", () => {
   it("accepts a submission whose XDR source matches the session wallet and the decision receipt", async () => {
     const walletKp = Keypair.random();
     globalThis.MOCK_SESSION_PUBLIC_KEY = walletKp.publicKey();
-    const signedXdr = buildSignedXdr(walletKp, walletKp.publicKey());
+    const destination = Keypair.random().publicKey();
+    const signedXdr = buildSignedXdr(walletKp, walletKp.publicKey(), destination);
+    const decisionReceipt = makeDecisionReceipt(destination);
 
     vi.mocked(getUserWallet).mockResolvedValue({
       userId: "user-1",

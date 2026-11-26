@@ -7,6 +7,8 @@ vi.mock("@/lib/storage/paths", () => {
   return {
     getFortexaStoreDir: () => dir,
     getFortexaStorePath: (fileName: string) => path.join(dir, fileName),
+    resolveContainedStorePath: async (requestedPath: string) =>
+      path.join(dir, requestedPath),
   };
 });
 

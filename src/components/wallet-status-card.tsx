@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, RefreshCw, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { resolveWalletCardState, type WalletCardState } from "@/lib/auth/session-wallet";
+import { resolveWalletCardState, type WalletCardState } from "@/lib/auth/wallet-card-state";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
 import { truncateMiddle } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";

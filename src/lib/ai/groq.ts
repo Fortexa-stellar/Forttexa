@@ -1,6 +1,21 @@
+import { randomUUID } from "node:crypto";
+
 import { defaultPolicyConfig } from "@/lib/policy/engine";
+import { normalizeDomain } from "@/lib/policy/domain";
 import { agentPlanSchema, type AgentPlanInput, type AgentPlanRequestInput } from "@/lib/validation/schemas";
 import { PLAN_ERRORS, PlanError } from "@/lib/ai/plan-errors";
+
+function assertPlanIsSafe(plan: AgentPlanInput) {
+  const tool = plan.action.tool;
+  if (tool && defaultPolicyConfig.blockedTools.includes(tool)) {
+    throw new PlanError(PLAN_ERRORS.UNSAFE_TOOL);
+  }
+
+  const domain = normalizeDomain(plan.action.domain);
+  if (domain && defaultPolicyConfig.blockedDomains.includes(domain)) {
+    throw new PlanError(PLAN_ERRORS.UNSAFE_DOMAIN);
+  }
+}
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const DEFAULT_MODEL = process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile";
@@ -60,8 +75,12 @@ function extractJsonObject(text: string) {
  * drifts from the schema is rejected wholesale — it never feeds a partial
  * plan or influences policy state.
  *
- * No `id` fallback is injected here: the model output is either a complete,
- * schema-valid plan or it is rejected.
+ * The documented model envelope is `{ id, action }`, but the planner also
+ * accepts a flat action object (the shape older prompts requested) and wraps
+ * it. A missing plan id is assigned a fresh UUID so the caller always has a
+ * stable identifier, while every other field must still satisfy the schema.
+ * Plans that reference a blocked tool or domain are rejected before they can
+ * reach the live decision engine.
  */
 export function parseAgentPlanFromContent(content: PlanCompletionContent): AgentPlanInput {
   let parsed: unknown;
@@ -76,11 +95,23 @@ export function parseAgentPlanFromContent(content: PlanCompletionContent): Agent
     throw new PlanError(PLAN_ERRORS.SCHEMA_MISMATCH);
   }
 
-  const result = agentPlanSchema.safeParse(parsed);
+  const record = parsed as Record<string, unknown>;
+  const planId =
+    typeof record.id === "string" && record.id.length > 0
+      ? record.id
+      : randomUUID();
+  const candidate =
+    "action" in record
+      ? record
+      : { id: planId, action: { ...record, id: planId } };
+
+  const result = agentPlanSchema.safeParse(candidate);
 
   if (!result.success) {
     throw new PlanError(PLAN_ERRORS.SCHEMA_MISMATCH);
   }
+
+  assertPlanIsSafe(result.data);
 
   return result.data;
 }

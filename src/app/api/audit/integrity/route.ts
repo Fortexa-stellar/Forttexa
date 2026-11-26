@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const allByUser = await listAllAllUditEntriesByUser();
+    const allByUser = await listAllAuditEntriesByUser();
     let checkedEntries = 0;
     let legacyEntries = 0;
     let firstBroken: { entryId: string | null; reason: string } | null = null;

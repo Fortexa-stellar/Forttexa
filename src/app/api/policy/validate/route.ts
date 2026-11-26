@@ -36,10 +36,17 @@ export async function POST(request: Request) {
         message: issue.message,
       }));
 
+      const fieldErrors: Record<string, string[]> = {};
+      for (const error of errors) {
+        const field = error.path.split(".")[0] ?? "root";
+        (fieldErrors[field] ??= []).push(error.message);
+      }
+
       return NextResponse.json(
         {
           valid: false,
           errors: errors.map((e) => `${e.path}: ${e.message}`),
+          fieldErrors,
         },
         { status: 400 }
       );
@@ -57,6 +64,7 @@ export async function POST(request: Request) {
             code: "DUPLICATE_RULE_IDENTIFIER",
             field: error.field,
             duplicateValue: error.value,
+            fieldErrors: { [error.field]: [error.message] },
           },
           { status: 422 }
         );

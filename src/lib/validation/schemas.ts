@@ -56,7 +56,11 @@ const agentActionShape = {
   kind: actionKindSchema,
   target: z.string().min(3).max(400),
   domain: z.string().min(3).max(255),
-  amountXLM: z.number().positive().max(100000),
+  amountXLM: z
+    .number()
+    .positive()
+    .max(100000)
+    .refine(withinAssetDecimals, { message: PAYMENT_AMOUNT_ERROR }),
   tool: z.string().min(1).max(120).optional(),
   outputPreview: z.string().min(1).max(2000).optional(),
   metadata: z.record(z.string(), metadataValueSchema).optional(),
@@ -89,6 +93,7 @@ export const decisionRequestSchema = z
     action: agentActionSchema.optional(),
     approvedByHuman: z.boolean().optional(),
     paymentQuoteInput: paymentQuoteInputSchema.optional(),
+    paymentQuote: paymentQuoteInputSchema.optional(),
   })
   .refine(
     (data) =>
@@ -111,12 +116,9 @@ export const stellarSetupRequestSchema = z.object({
 export const stellarBuildPaymentRequestSchema = z.object({
   auditEntryId: z.string().uuid(),
   destination: stellarPublicKeySchema,
-  amountXLM: z
-    .string()
-    .regex(
-      /^\d+(\.\d{1,7})?$/,
-      "amountXLM must be a positive decimal string with up to 7 decimals",
-    ),
+  amountXLM: z.string().refine(isValidPaymentAmountString, {
+    message: PAYMENT_AMOUNT_ERROR,
+  }),
   asset: z.enum(["native"]).default("native"),
   memo: z.string().max(28).optional(),
   network: z.enum(["testnet"]).default("testnet"),
@@ -143,11 +145,25 @@ const decisionReceiptSchema = z.object({
     .optional(),
 });
 
-export const stellarSubmitSignedRequestSchema = z.object({
-  signedXdr: z.string().min(20).max(120000),
-  decisionReceipt: decisionReceiptSchema,
-  idempotencyKey: idempotencyKeySchema.optional(),
-});
+export const stellarSubmitSignedRequestSchema = z
+  .object({
+    signedXdr: z.string().min(20).max(120000),
+    decisionReceipt: decisionReceiptSchema.optional(),
+    auditEntryId: z.string().uuid().optional(),
+    decisionId: z.string().uuid().optional(),
+    quoteExpiresAt: z.string().optional(),
+    buildAuthorization: z.string().optional(),
+    idempotencyKey: idempotencyKeySchema.optional(),
+  })
+  .refine(
+    (data) =>
+      Boolean(data.decisionReceipt || data.auditEntryId || data.decisionId),
+    {
+      message:
+        "A signed payment submission requires a decision receipt or audit entry reference.",
+      path: ["auditEntryId"],
+    },
+  );
 
 export const agentPlanRequestSchema = z.object({
   goal: z.string().min(5).max(2000),

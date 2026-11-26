@@ -9,13 +9,15 @@ type RequireAuthOptions = {
 };
 
 function unauthorizedResponse(requestId: string) {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { error: "Unauthorized. Login required." },
     {
       status: 401,
       headers: { "x-request-id": requestId },
-    }
+    },
   );
+
+  return applySecurityHeaders(response, requestId);
 }
 
 export function requireAuth(request: NextRequest, options?: RequireAuthOptions) {
@@ -23,14 +25,6 @@ export function requireAuth(request: NextRequest, options?: RequireAuthOptions) 
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
 
   if (!session) {
-    const response = NextResponse.json(
-      { error: "Unauthorized. Login required." },
-      {
-        status: 401,
-        headers: { "x-request-id": requestId },
-      }
-    );
-
     return {
       ok: false as const,
       response: unauthorizedResponse(requestId),
@@ -42,9 +36,17 @@ export function requireAuth(request: NextRequest, options?: RequireAuthOptions) 
   const sessionRoles = session.roles ?? [session.role];
 
   if (!allowedRoles.some((role) => sessionRoles.includes(role))) {
+    const forbidden = NextResponse.json(
+      { error: "Forbidden. Insufficient role." },
+      {
+        status: 403,
+        headers: { "x-request-id": requestId },
+      },
+    );
+
     return {
       ok: false as const,
-      response: applySecurityHeaders(response, requestId),
+      response: applySecurityHeaders(forbidden, requestId),
     };
   }
 

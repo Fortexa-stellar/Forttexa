@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
-import { decisionAmountStroops, evaluateDecision } from "@/lib/decision/engine";
+import {
+  buildPaymentComparisonFromQuoteInput,
+  decisionAmountStroops,
+  evaluateDecision,
+} from "@/lib/decision/engine";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import {
   getRequestLogContext,
@@ -15,16 +19,21 @@ import { readinessBlockResponse } from "@/lib/readiness/guard";
 import { recordDecisionOutcome } from "@/lib/observability/metrics";
 import { redactSensitiveFields } from "@/lib/observability/redact";
 import { demoScenarios } from "@/lib/scenarios/seed";
+import { enforceRequestGate, gateErrorHeaders } from "@/lib/security/enforcement-gate";
 import { rateLimitHeaders } from "@/lib/security/rate-limit";
 import {
   appendAuditEntry,
   consumeUsage,
   getDailyUsage,
 } from "@/lib/storage/audit-store";
-import { getUserWallet } from "@/lib/storage/user-wallet-store";
+import {
+  getUserWallet,
+  isUserWalletRevoked,
+} from "@/lib/storage/user-wallet-store";
 import { getPolicyConfig } from "@/lib/storage/policy-store";
 import { buildPaymentQuoteFromDecision } from "@/lib/stellar/verify-payment-quote";
 import type { AuditEntry } from "@/lib/types/domain";
+import { logValidationFailure } from "@/lib/validation/errors";
 import { decisionRequestSchema } from "@/lib/validation/schemas";
 
 export async function POST(request: NextRequest) {
@@ -40,7 +49,8 @@ export async function POST(request: NextRequest) {
 
   // Read the body before consuming the rate budget so the gate can check the
   // requested destination against the blocklist in the same atomic step.
-  const rawBody = (await request.json().catch(() => ({}))) as unknown;
+  const bodyResult = await readJsonBody(request);
+  const rawBody = bodyResult.ok ? bodyResult.data : {};
 
   const rawDestination =
     typeof rawBody === "object" && rawBody !== null
@@ -65,7 +75,7 @@ export async function POST(request: NextRequest) {
     actionDomain: typeof rawActionDomain === "string" ? rawActionDomain : undefined,
   });
 
-  if (!rate.ok) {
+  if (!gate.ok) {
     logWarn("Decision route rate limited", context);
     return respond(request, {
       route: "/api/decision",
@@ -81,6 +91,17 @@ export async function POST(request: NextRequest) {
 
   const rate = gate.rate;
 
+  if (!bodyResult.ok) {
+    logWarn("Decision request payload too large", context);
+    return respond(request, {
+      route: "/api/decision",
+      startedAtMs,
+      status: 413,
+      body: { error: bodyResult.error },
+      headers: rateLimitHeaders(rate),
+    });
+  }
+
   try {
     const auth = requireAuth(request, { allowedRoles: ["operator", "signer"] });
 
@@ -91,7 +112,23 @@ export async function POST(request: NextRequest) {
 
     const userId = auth.session.userId;
 
-    const rawBody = (await request.json().catch(() => ({}))) as unknown;
+    const wallet = await getUserWallet(userId);
+    if (!wallet || "expired" in wallet) {
+      const revoked = !wallet && (await isUserWalletRevoked(userId));
+      logWarn("Decision route missing wallet mapping", { ...context, userId, revoked });
+      return respond(request, {
+        route: "/api/decision",
+        startedAtMs,
+        status: 401,
+        body: {
+          error: revoked
+            ? "Session wallet mapping was revoked."
+            : "No active wallet mapping found for this user.",
+        },
+        headers: rateLimitHeaders(rate),
+      });
+    }
+
     requestBody = rawBody;
     const parsedBody = decisionRequestSchema.safeParse(rawBody);
 

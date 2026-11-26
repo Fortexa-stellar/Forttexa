@@ -10,7 +10,7 @@ vi.mock("@stellar/freighter-api", () => {
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { WalletActionsPanel } from "@/components/wallet-status-card";
-import { resolveWalletCardState } from "@/lib/auth/session-wallet";
+import { resolveWalletCardState } from "@/lib/auth/wallet-card-state";
 
 const SESSION_WALLET = "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H";
 const OTHER_ACCOUNT = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7";

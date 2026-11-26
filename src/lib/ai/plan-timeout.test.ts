@@ -167,8 +167,8 @@ describe("AI planning abort timeout & error mapping", () => {
       }
 
       expect(caught).toBeInstanceOf(PlanError);
-      expect((caught as PlanError).code).toBe(PLAN_ERRORS.PROVIDER_UNAVAILABLE);
-      expect((caught as PlanError).message).toMatch(/timed out/i);
+      expect((caught as InstanceType<typeof PlanError>).code).toBe(PLAN_ERRORS.PROVIDER_UNAVAILABLE);
+      expect((caught as InstanceType<typeof PlanError>).message).toMatch(/timed out/i);
     });
 
     it("maps fetch TimeoutError to PLAN_PROVIDER_UNAVAILABLE PlanError", async () => {
@@ -185,8 +185,8 @@ describe("AI planning abort timeout & error mapping", () => {
       }
 
       expect(caught).toBeInstanceOf(PlanError);
-      expect((caught as PlanError).code).toBe(PLAN_ERRORS.PROVIDER_UNAVAILABLE);
-      expect((caught as PlanError).message).toMatch(/timed out/i);
+      expect((caught as InstanceType<typeof PlanError>).code).toBe(PLAN_ERRORS.PROVIDER_UNAVAILABLE);
+      expect((caught as InstanceType<typeof PlanError>).message).toMatch(/timed out/i);
     });
 
     it("maps timeout failures to HTTP 422 with PLAN_PROVIDER_UNAVAILABLE in the plan route", async () => {

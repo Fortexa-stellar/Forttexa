@@ -69,7 +69,7 @@ describe("wallet challenge", () => {
       signature,
     });
 
-    expect(replayed).toEqual({ ok: false, code: "missing" });
+    expect(replayed).toEqual({ ok: false, code: "replayed" });
   });
 
   it("rejects expired challenges", async () => {

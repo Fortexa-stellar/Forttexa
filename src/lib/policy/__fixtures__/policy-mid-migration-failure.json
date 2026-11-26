@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "allowedDomains": ["api.safe-research.ai"],
+  "blockedDomains": ["wallet-drainer.evil"],
+  "allowedTools": ["research-pro"],
+  "blockedTools": ["shadow-shell"],
+  "perTxCapXLM": "not-a-number",
+  "dailyCapXLM": 200,
+  "maxToolCallsPerDay": 5,
+  "riskThreshold": 50
+}

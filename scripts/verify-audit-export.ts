@@ -2,12 +2,16 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { verifyHashChain } from "../src/lib/audit/hash-chain";
-import type { ChainVerificationResult } from "../src/lib/audit/hash-chain";
+import type {
+  ChainBoundaries,
+  ChainVerificationResult,
+} from "../src/lib/audit/hash-chain";
 import type { AuditEntry } from "../src/lib/types/domain";
 
 export interface ExtractedExport {
   entries: AuditEntry[] | null;
   entriesByUser: Record<string, AuditEntry[]> | null;
+  chainBoundary?: ChainBoundaries;
 }
 
 export function extractExportPayload(data: unknown): ExtractedExport {
@@ -19,6 +23,7 @@ export function extractExportPayload(data: unknown): ExtractedExport {
   }
   const obj = data as Record<string, unknown>;
   const scope = obj.scope;
+  const chainBoundary = obj.chainBoundary as ChainBoundaries | undefined;
 
   if (scope === "all" || obj.entriesByUser) {
     const entriesByUser = obj.entriesByUser;
@@ -32,7 +37,7 @@ export function extractExportPayload(data: unknown): ExtractedExport {
       }
       result[userId] = entries as AuditEntry[];
     }
-    return { entries: null, entriesByUser: result };
+    return { entries: null, entriesByUser: result, chainBoundary };
   }
 
   if (scope === "mine" || obj.entries) {
@@ -40,7 +45,11 @@ export function extractExportPayload(data: unknown): ExtractedExport {
     if (!Array.isArray(entries)) {
       throw new Error("scope=mine export is missing entries array");
     }
-    return { entries: entries as AuditEntry[], entriesByUser: null };
+    return {
+      entries: entries as AuditEntry[],
+      entriesByUser: null,
+      chainBoundary,
+    };
   }
 
   throw new Error(

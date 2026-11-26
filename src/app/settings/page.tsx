@@ -10,6 +10,11 @@ import { WalletStatusCard } from "@/components/wallet-status-card";
 import { AUTH_COOKIE_KEY, verifySessionToken } from "@/lib/auth/session";
 import { getMetricsSnapshot } from "@/lib/observability/metrics";
 import { listAuditEntries } from "@/lib/storage/audit-store";
+import {
+  getStellarNetworkFingerprint,
+  inferStellarNetworkProfile,
+  resolveStellarNetworkConfig,
+} from "@/lib/stellar/network-config";
 
 const tabs: TabItem[] = [
   { id: "policies", label: "Policies", href: "/settings?tab=policies" },
@@ -38,6 +43,14 @@ export default async function SettingsPage({
   // Ops dashboard loader: read the in-process metrics snapshot directly so the
   // screen renders the same counters the `/api/metrics` scrape exports.
   const opsMetricsSnapshot = activeTab === "ops" ? getMetricsSnapshot() : null;
+
+  const network = resolveStellarNetworkConfig();
+  const horizonUrl = network.ok
+    ? network.horizonUrl
+    : (process.env.STELLAR_HORIZON_URL ?? "");
+  const networkPassphrase = network.ok
+    ? network.networkPassphrase
+    : (process.env.STELLAR_NETWORK_PASSPHRASE ?? "");
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -79,7 +92,9 @@ export default async function SettingsPage({
           </div>
         </div>
       ) : null}
-      {activeTab === "scenarios" ? <ScenariosCatalog /> : null}
+      {activeTab === "scenarios" ? (
+        <ScenariosCatalog evaluations={scenarioEvaluations} />
+      ) : null}
       {activeTab === "ops" && opsMetricsSnapshot ? (
         <OpsDashboard initialMetrics={opsMetricsSnapshot} />
       ) : null}

@@ -9,7 +9,9 @@ vi.hoisted(() => {
 });
 
 const { runWithDatabaseMock } = vi.hoisted(() => ({
-  runWithDatabaseMock: vi.fn(async () => ({ available: false as const })),
+  runWithDatabaseMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(
+    async () => ({ available: false as const }),
+  ),
 }));
 
 vi.mock("@/lib/storage/db", () => ({
@@ -101,9 +103,10 @@ describe("audit-store append serialization", () => {
       release: vi.fn(),
     };
     const pool = { connect: vi.fn(async () => client) };
-    runWithDatabaseMock.mockImplementationOnce(async (_name, action) => {
+    runWithDatabaseMock.mockImplementationOnce(async (_name: unknown, action: unknown) => {
+      const run = action as (pool: unknown) => Promise<unknown>;
       try {
-        return { available: true as const, value: await action(pool as never) };
+        return { available: true as const, value: await run(pool) };
       } catch (error) {
         throw error;
       }
