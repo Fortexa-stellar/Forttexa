@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { AUTH_COOKIE_KEY } from "@/lib/auth/session";
-import { securityHeadersForRequest } from "@/lib/security/headers";
+import { AUTH_COOKIE_KEY, getSessionFromRequest } from "@/lib/auth/session";
+import { revokeSession } from "@/lib/auth/session-revocation";
 
 export async function POST(request: NextRequest) {
   // Clearing the cookie only affects this browser. Revoking the session id

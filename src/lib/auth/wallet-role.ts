@@ -20,6 +20,10 @@ export function normalizeWalletPublicKey(publicKey: string) {
 }
 
 export function isValidWalletPublicKey(publicKey: string) {
+  if (typeof publicKey !== "string") {
+    return false;
+  }
+
   return STELLAR_PUBLIC_KEY.test(normalizeWalletPublicKey(publicKey));
 }
 

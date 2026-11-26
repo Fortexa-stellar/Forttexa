@@ -101,7 +101,11 @@ export function isSessionGenerationCurrent(identity: SessionIdentity & { generat
     return false;
   }
 
-  return identity.generation >= record.generation;
+  // Every generation of one login shares its session id, and all of them stay
+  // usable until the session is revoked. A token minted after the store's
+  // generation (which a caller cannot forge without the signing secret) is
+  // rejected; an older one is still a valid copy of the same session.
+  return identity.generation <= record.generation;
 }
 
 export function revokeSession(identity: SessionIdentity): void {

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
+import { isLoginAuthorizationPayload } from "@/lib/auth/wallet-challenge";
+import { readinessBlockResponse } from "@/lib/readiness/guard";
 import { checkBlocklist } from "@/lib/security/blocklist";
+import { securityHeadersForRequest } from "@/lib/security/headers";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
 import { verifyPaymentAgainstQuote } from "@/lib/stellar/verify-payment-quote";
 import { getAuditEntryById } from "@/lib/storage/audit-store";
@@ -22,6 +25,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const rawPayload = (await request.json().catch(() => ({}))) as unknown;
+
+  // A wallet login signature authenticates a session; it never authorizes a
+  // payment. Reject it before the role gate so the response is a stable 400
+  // for every caller rather than depending on the session's roles.
+  if (isLoginAuthorizationPayload(rawPayload)) {
+    return NextResponse.json(
+      { error: "Login signatures cannot authorize a payment." },
+      { status: 400, headers: rateLimitHeaders(rate) },
+    );
+  }
+
   try {
     const auth = requireAuth(request, { allowedRoles: ["signer"] });
 
@@ -39,14 +54,6 @@ export async function POST(request: NextRequest) {
     if (notReady) {
       return notReady;
     }
-    const rawPayload = (await request.json().catch(() => ({}))) as unknown;
-    if (isLoginAuthorizationPayload(rawPayload)) {
-      return NextResponse.json(
-        { error: "Login signatures cannot authorize a payment." },
-        { status: 400, headers: rateLimitHeaders(rate) },
-      );
-    }
-
     const parsedPayload = stellarBuildPaymentRequestSchema.safeParse(rawPayload);
 
     if (!parsedPayload.success) {

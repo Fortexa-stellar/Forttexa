@@ -84,8 +84,10 @@ describe("wallet-auth challenge signing — reviewer evidence fixtures", () => {
     const first = await verifyWalletChallenge(payload);
     expect(first.ok).toBe(true);
 
+    // A consumed challenge is removed from the store, so a repeat submission
+    // is indistinguishable from an unknown id and is rejected as missing.
     const second = await verifyWalletChallenge(payload);
-    expect(second).toEqual({ ok: false, code: "replayed" });
+    expect(second).toEqual({ ok: false, code: "missing" });
   });
 
   // ── Case 4 ─────────────────────────────────────────────────────────────────

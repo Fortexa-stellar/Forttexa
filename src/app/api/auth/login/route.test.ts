@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AUTH_COOKIE_KEY } from "@/lib/auth/session";
 import { hashSep53Message, resetWalletChallengeStore } from "@/lib/auth/wallet-challenge";
+import { resetRateLimitStore } from "@/lib/security/rate-limit";
+import { buildSecurityHeaders } from "@/lib/security/headers";
 import {
   isLoginLocked,
   registerLoginFailure,
@@ -50,6 +52,7 @@ function loginRequest(body: unknown, ip = "127.0.0.1") {
 describe("/api/auth/login challenge-signature flow", () => {
   beforeEach(async () => {
     await resetWalletChallengeStore();
+    await resetRateLimitStore();
   });
 
   afterEach(async () => {
@@ -62,6 +65,7 @@ describe("/api/auth/login challenge-signature flow", () => {
     resetLoginLockoutClock();
     await resetWalletChallengeStore();
     await resetLoginLockoutStore();
+    await resetRateLimitStore();
   });
 
   it("issues a session cookie after a valid wallet signature", async () => {
@@ -120,7 +124,7 @@ describe("/api/auth/login challenge-signature flow", () => {
     const challenge = await issueChallenge(AUTHORIZED_PUBLIC_KEY);
     const signature = signSep53Message(AUTHORIZED_SECRET, challenge.message);
 
-    vi.advanceTimesBy(61_000);
+    vi.advanceTimersByTime(61_000);
 
     const response = await login(
       loginRequest({
@@ -284,7 +288,7 @@ describe("/api/auth/login challenge-signature flow", () => {
 
       process.env.FORTEXA_AUTH_SECRET = "login-route-test-secret";
       process.env.FORTEXA_OPERATOR_WALLETS = AUTHORIZED_PUBLIC_KEY;
-      process.env.FORTEXA_AUTH_MAX_ATTEMPS = "2";
+      process.env.FORTEXA_AUTH_MAX_ATTEMPTS = "2";
       process.env.FORTEXA_AUTH_LOCK_MINUTES = "1";
 
       const userId = `wallet:${AUTHORIZED_PUBLIC_KEY}`;
