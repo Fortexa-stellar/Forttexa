@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { requestIdFor } from "@/lib/http/request-id";
 import { recordApiMetric } from "@/lib/observability/metrics";
 import { redactSensitiveFields } from "@/lib/observability/redact";
 import { applySecurityHeaders } from "@/lib/security/headers";
@@ -9,6 +10,7 @@ export type HttpExchangeLog = {
   method: string;
   path: string;
   status: number;
+  requestId?: string;
   requestBody?: unknown;
   responseBody?: unknown;
   /** When set, the corresponding body is omitted entirely. */
@@ -22,6 +24,7 @@ export function logHttpExchange(input: HttpExchangeLog) {
     method: input.method,
     path: input.path,
     status: input.status,
+    ...(input.requestId ? { requestId: input.requestId } : {}),
   };
 
   if (!input.requestBodyTooLarge && input.requestBody !== undefined) {
@@ -49,18 +52,19 @@ export function jsonWithRequestContext(
     noStore?: boolean;
   }
 ) {
+  const requestId = requestIdFor(request);
   if (input.logExchange) {
     logHttpExchange({
       method: request.method,
       path: input.route,
       status: input.status,
+      requestId,
       requestBody: input.requestBody,
       responseBody: input.body,
       requestBodyTooLarge: input.requestBodyTooLarge,
     });
   }
 
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
   const durationMs = Math.max(0, Date.now() - input.startedAtMs);
 
   recordApiMetric({

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { requestIdFor } from "@/lib/http/request-id";
 import { AUTH_COOKIE_KEY, verifySessionToken } from "@/lib/auth/session";
 import { applySecurityHeaders } from "@/lib/security/headers";
 
@@ -43,8 +44,10 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const response = NextResponse.next();
-  const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+  const requestId = requestIdFor(request);
+  const forwardedHeaders = new Headers(request.headers);
+  forwardedHeaders.set("x-request-id", requestId);
+  const response = NextResponse.next({ request: { headers: forwardedHeaders } });
 
   // Share the exact same header writer as the auth/payment route handlers so
   // page and API responses never drift apart.

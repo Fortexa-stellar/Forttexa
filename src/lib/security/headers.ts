@@ -1,3 +1,5 @@
+import { requestIdFor } from "@/lib/http/request-id";
+
 export function buildSecurityHeaders(): Record<string, string> {
   const isDev = process.env.NODE_ENV === "development";
 
@@ -82,6 +84,6 @@ export function securityHeadersForRequest(
   request: { headers: Headers },
   options: SecurityHeaderOptions = {},
 ): Record<string, string> {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = requestIdFor(request);
   return buildResponseSecurityHeaders(requestId, options);
 }

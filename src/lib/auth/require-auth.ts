@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { requestIdFor } from "@/lib/http/request-id";
 import { getSessionFromRequest, type AuthRole } from "@/lib/auth/session";
 import { isSessionRevoked } from "@/lib/auth/session-revocation";
 import { applySecurityHeaders } from "@/lib/security/headers";
@@ -9,7 +10,7 @@ type RequireAuthOptions = {
 };
 
 function unauthorizedResponse(request: NextRequest) {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = requestIdFor(request);
   const response = NextResponse.json(
     { error: "Unauthorized. Login required." },
     {
@@ -22,7 +23,7 @@ function unauthorizedResponse(request: NextRequest) {
 }
 
 function forbiddenResponse(request: NextRequest) {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = requestIdFor(request);
   const response = NextResponse.json(
     { error: "Forbidden. Insufficient role permissions." },
     {
