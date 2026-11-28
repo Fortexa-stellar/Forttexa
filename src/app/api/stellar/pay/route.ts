@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     if (isLoginAuthorizationPayload(rawPayload)) {
       return NextResponse.json(
         { error: "Login signatures cannot authorize a payment." },
-        { status: 400, headers: rateLimitHeaders(rate) },
+        { status: 400, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } },
       );
     }
 
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     if (!(await checkBlocklist(payload.destination)).allow) {
       return NextResponse.json(
         { error: "Destination is blocklisted." },
-        { status: 403, headers: rateLimitHeaders(rate) }
+        { status: 403, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     if (!verification.ok) {
       return NextResponse.json(
         { error: verification.error, field: verification.field },
-        { status: verification.status, headers: rateLimitHeaders(rate) }
+        { status: verification.status, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 

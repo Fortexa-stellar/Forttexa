@@ -20,9 +20,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { challenge } = await request.json();
+  const body = (await request.json().catch(() => null)) as { challenge?: unknown } | null;
+  const challenge = typeof body?.challenge === "string" ? body.challenge : undefined;
 
-  if (usedChallenges.has(challenge)) {
+  if (challenge !== undefined && usedChallenges.has(challenge)) {
     usedChallenges.delete(challenge); // Mark as consumed
     return NextResponse.json(
       { error: 'Challenge already used', code: 'CHALLENGE_CONSUMED' },

@@ -19,14 +19,17 @@ export async function POST(request: NextRequest) {
   const destination = stellarPublicKeySchema.safeParse(body?.destination);
 
   if (destination.success && !(await checkBlocklist(destination.data)).allow) {
-    return NextResponse.json({ error: "Destination is blocklisted." }, { status: 403 });
+    return NextResponse.json(
+      { error: "Destination is blocklisted." },
+      { status: 403, headers: securityHeadersForRequest(request) }
+    );
   }
 
   if (getStellarNetworkPassphrase() === STELLAR_PUBLIC_NETWORK_PASSPHRASE) {
     logWarn("Stellar funding refused on public network", getRequestLogContext(request, "/api/stellar/fund"));
     return NextResponse.json(
       { error: "Stellar funding is disabled on the public network." },
-      { status: 403 }
+      { status: 403, headers: securityHeadersForRequest(request) }
     );
   }
 

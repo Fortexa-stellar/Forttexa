@@ -5,6 +5,7 @@ import { getWalletFromSession } from "@/lib/auth/session-wallet";
 import { checkBlocklist } from "@/lib/security/blocklist";
 import { securityHeadersForRequest } from "@/lib/security/headers";
 import { getNativeBalance } from "@/lib/stellar/client";
+import { resolveStellarNetworkConfig } from "@/lib/stellar/network-config";
 import { getUserWallet, upsertUserWallet } from "@/lib/storage/user-wallet-store";
 
 export async function GET(request: NextRequest) {
@@ -67,7 +68,7 @@ export async function GET(request: NextRequest) {
   if (!(await checkBlocklist(publicKey)).allow) {
     return NextResponse.json(
       { error: "Wallet address is blocklisted." },
-      { status: 403 }
+      { status: 403, headers: securityHeadersForRequest(request) }
     );
   }
 
