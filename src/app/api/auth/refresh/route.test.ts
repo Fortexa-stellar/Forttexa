@@ -90,13 +90,15 @@ describe("/api/auth/refresh route", () => {
     await upsertUserWallet("refresh-operator", { publicKey: WALLET, source: "external" });
     const start = Date.parse("2024-01-01T00:00:00.000Z");
     setLoginLockoutClock(() => start);
-    await registerLoginFailure(WALLET, CLIENT_IP);
+    await registerLoginFailure(`wallet:${WALLET}`, CLIENT_IP);
+    setLoginLockoutClock(() => start + 1_001);
 
     const response = await POST(refreshRequest(operatorCookie()));
     expect(response.status).toBe(401);
 
     const payload = (await response.json()) as { error?: string };
     expect(payload.error).toMatch(/locked/i);
+    expect(response.headers.get("Retry-After")).toBe("59");
     expect(response.headers.get("set-cookie") ?? "").not.toContain(AUTH_COOKIE_KEY);
   });
 
@@ -104,7 +106,7 @@ describe("/api/auth/refresh route", () => {
     await upsertUserWallet("refresh-operator", { publicKey: WALLET, source: "external" });
     const start = Date.parse("2024-01-01T00:00:00.000Z");
     setLoginLockoutClock(() => start);
-    await registerLoginFailure(WALLET, CLIENT_IP);
+    await registerLoginFailure(`wallet:${WALLET}`, CLIENT_IP);
     setLoginLockoutClock(() => start + 61_000);
 
     const response = await POST(refreshRequest(operatorCookie()));

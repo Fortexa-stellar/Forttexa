@@ -1,4 +1,4 @@
-import { resolveRequestId } from "@/lib/http/request-id";
+import { requestIdFor } from "@/lib/http/request-id";
 
 export function buildSecurityHeaders(): Record<string, string> {
   const isDev = process.env.NODE_ENV === "development";
@@ -20,6 +20,7 @@ export function buildSecurityHeaders(): Record<string, string> {
     "X-Frame-Options": "DENY",
     "Content-Security-Policy": cspDirectives.join("; "),
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Referrer-Policy": "no-referrer",
   };
 }
 
@@ -43,7 +44,7 @@ export function buildResponseSecurityHeaders(
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "x-request-id": requestId,
-    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Referrer-Policy": "no-referrer",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
     ...buildSecurityHeaders(),
@@ -59,7 +60,8 @@ export function buildResponseSecurityHeaders(
 /**
  * Shared header writer used by the proxy and route handlers. Applies the full
  * security header set to an existing response so success and error responses
- * cannot drift apart.
+ * cannot drift apart. Route-specific headers (rate limit, retry hints,
+ * content disposition) are left untouched.
  */
 export function applySecurityHeaders<T extends { headers: Headers }>(
   response: T,
@@ -75,13 +77,13 @@ export function applySecurityHeaders<T extends { headers: Headers }>(
 
 /**
  * Convenience wrapper for route handlers that build their own responses: reads
- * (or mints) a sanitized request id and returns the header record the route
- * should merge into `NextResponse.json`.
+ * (or mints) the request id and returns the header record the route should
+ * merge into `NextResponse.json`.
  */
 export function securityHeadersForRequest(
   request: { headers: Headers },
   options: SecurityHeaderOptions = {},
 ): Record<string, string> {
-  const requestId = resolveRequestId(request);
+  const requestId = requestIdFor(request);
   return buildResponseSecurityHeaders(requestId, options);
 }

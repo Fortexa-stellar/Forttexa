@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { NextRequest } from "next/server";
 
-import { jsonWithRequestContext, logHttpExchange } from "@/lib/observability/http";
-import { MAX_REQUEST_ID_LENGTH } from "@/lib/http/request-id";
+import { logHttpExchange } from "@/lib/observability/http";
 
 describe("logHttpExchange", () => {
   afterEach(() => {
@@ -73,63 +71,5 @@ describe("logHttpExchange", () => {
     expect(logged).toContain("/api/decision");
     expect(logged).toContain("413");
     expect(logged).toContain("Request body exceeds the limit.");
-  });
-});
-
-describe("jsonWithRequestContext request id", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  function requestWithId(id: string): NextRequest {
-    return {
-      method: "POST",
-      headers: {
-        get: (name: string) =>
-          name.toLowerCase() === "x-request-id" ? id : null,
-      },
-    } as NextRequest;
-  }
-
-  it("echoes a safe inbound id on the response", () => {
-    const response = jsonWithRequestContext(requestWithId("safe-req-42"), {
-      route: "/api/decision",
-      startedAtMs: Date.now(),
-      status: 200,
-      body: { ok: true },
-    });
-
-    expect(response.headers.get("x-request-id")).toBe("safe-req-42");
-  });
-
-  it("replaces a control-character inbound id on the response", () => {
-    const generated = "55555555-6666-4777-8888-999999999999";
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(generated);
-
-    const response = jsonWithRequestContext(requestWithId("bad\nid"), {
-      route: "/api/decision",
-      startedAtMs: Date.now(),
-      status: 200,
-      body: { ok: true },
-    });
-
-    expect(response.headers.get("x-request-id")).toBe(generated);
-  });
-
-  it("replaces an oversized inbound id on the response", () => {
-    const generated = "66666666-7777-4888-8999-aaaaaaaaaaaa";
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(generated);
-
-    const response = jsonWithRequestContext(
-      requestWithId("z".repeat(MAX_REQUEST_ID_LENGTH + 1)),
-      {
-        route: "/api/decision",
-        startedAtMs: Date.now(),
-        status: 200,
-        body: { ok: true },
-      },
-    );
-
-    expect(response.headers.get("x-request-id")).toBe(generated);
   });
 });

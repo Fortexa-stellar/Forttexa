@@ -1,40 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { requestIdFor } from "@/lib/http/request-id";
 import { getSessionFromRequest, type AuthRole } from "@/lib/auth/session";
 import { isSessionRevoked } from "@/lib/auth/session-revocation";
-import { resolveRequestId } from "@/lib/http/request-id";
 import { applySecurityHeaders } from "@/lib/security/headers";
 
 type RequireAuthOptions = {
   allowedRoles?: AuthRole[];
 };
 
-function unauthorizedResponse(requestId: string) {
-  return NextResponse.json(
+function unauthorizedResponse(request: NextRequest) {
+  const requestId = requestIdFor(request);
+  const response = NextResponse.json(
     { error: "Unauthorized. Login required." },
     {
       status: 401,
       headers: { "x-request-id": requestId },
-    }
+    },
   );
+
+  return applySecurityHeaders(response, requestId, { noStore: true });
+}
+
+function forbiddenResponse(request: NextRequest) {
+  const requestId = requestIdFor(request);
+  const response = NextResponse.json(
+    { error: "Forbidden. Insufficient role permissions." },
+    {
+      status: 403,
+      headers: { "x-request-id": requestId },
+    },
+  );
+
+  return applySecurityHeaders(response, requestId, { noStore: true });
 }
 
 export function requireAuth(request: NextRequest, options?: RequireAuthOptions) {
   const session = getSessionFromRequest(request);
-  const requestId = resolveRequestId(request);
 
   if (!session) {
-    const response = NextResponse.json(
-      { error: "Unauthorized. Login required." },
-      {
-        status: 401,
-        headers: { "x-request-id": requestId },
-      }
-    );
-
     return {
       ok: false as const,
-      response: unauthorizedResponse(requestId),
+      response: unauthorizedResponse(request),
     };
   }
 
@@ -45,7 +52,7 @@ export function requireAuth(request: NextRequest, options?: RequireAuthOptions) 
   if (!allowedRoles.some((role) => sessionRoles.includes(role))) {
     return {
       ok: false as const,
-      response: applySecurityHeaders(response, requestId),
+      response: forbiddenResponse(request),
     };
   }
 
@@ -68,7 +75,7 @@ export async function requireActiveAuth(request: NextRequest, options?: RequireA
   if (await isSessionRevoked(auth.session.sid)) {
     return {
       ok: false as const,
-      response: unauthorizedResponse(resolveRequestId(request)),
+      response: unauthorizedResponse(request),
     };
   }
 

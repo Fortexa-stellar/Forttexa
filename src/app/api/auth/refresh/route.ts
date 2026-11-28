@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 
 import { requireActiveAuth } from "@/lib/auth/require-auth";
-import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
+import { createSessionToken } from "@/lib/auth/session";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logInfo, logWarn } from "@/lib/observability/logger";
 import { getUserWallet } from "@/lib/storage/user-wallet-store";
 import { isLoginLocked, readClientIp } from "@/lib/auth/login-lockout";
-import { setSessionCookie } from "@/lib/auth/session-cookie";
+import { clearSessionCookie, setSessionCookie } from "@/lib/auth/session-cookie";
 import { applySecurityHeaders } from "@/lib/security/headers";
 
 export async function POST(request: NextRequest) {
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   const sessionWallet = auth.session.publicKey;
 
   if (sessionWallet) {
-    const lockState = await isLoginLocked(sessionWallet, clientIp);
+    const lockState = await isLoginLocked(`wallet:${sessionWallet}`, clientIp);
     if (lockState.locked) {
       logWarn("Auth refresh blocked by lockout", { ...context, wallet: sessionWallet, ip: clientIp });
       return jsonWithRequestContext(request, {
@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
         startedAtMs,
         status: 401,
         body: { error: "Account is temporarily locked. Refresh token invalid." },
+        headers: { "Retry-After": String(lockState.retryAfterSeconds) },
+        noStore: true,
       });
     }
   }
@@ -45,7 +47,7 @@ export async function POST(request: NextRequest) {
       status: 401,
       body: { error: "Session wallet mapping has expired or been revoked." },
     });
-    response.cookies.delete(AUTH_COOKIE_KEY);
+    clearSessionCookie(response);
     return response;
   }
 

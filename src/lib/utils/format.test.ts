@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { truncateMiddle, formatNumber, formatCurrency, formatPct } from "@/lib/utils/format";
+import {
+  truncateMiddle,
+  formatNumber,
+  formatCurrency,
+  formatPct,
+  formatAuditTimestamp
+} from "@/lib/utils/format";
 
 describe("truncateMiddle", () => {
   it("returns value unchanged when short enough", () => {
@@ -67,7 +73,6 @@ describe("formatCurrency", () => {
   });
 
   it("supports alternate currencies", () => {
-    // Note: Node's Intl support may vary, but basic EUR symbol should work
     const eur = formatCurrency(100, "EUR");
     expect(eur.includes("100.00")).toBe(true);
     expect(eur.includes("€")).toBe(true);
@@ -87,5 +92,61 @@ describe("formatPct", () => {
   it("handles edge cases and non-finite inputs", () => {
     expect(formatPct(NaN)).toBe("0.00%");
     expect(formatPct(Infinity)).toBe("0.00%");
+  });
+});
+
+describe("formatAuditTimestamp", () => {
+  it("formats ISO string into consistent UTC date and time with ISO dateTime", () => {
+    const result = formatAuditTimestamp("2026-01-15T12:30:45.000Z");
+    expect(result.isValid).toBe(true);
+    expect(result.dateTime).toBe("2026-01-15T12:30:45.000Z");
+    expect(result.formatted).toBe("2026-01-15 12:30:45 UTC");
+    expect(result.timeOnly).toBe("12:30:45 UTC");
+  });
+
+  it("handles Date instances", () => {
+    const date = new Date("2026-06-20T08:15:00.000Z");
+    const result = formatAuditTimestamp(date);
+    expect(result.isValid).toBe(true);
+    expect(result.dateTime).toBe("2026-06-20T08:15:00.000Z");
+    expect(result.formatted).toBe("2026-06-20 08:15:00 UTC");
+    expect(result.timeOnly).toBe("08:15:00 UTC");
+  });
+
+  it("handles numeric timestamps and numeric strings", () => {
+    const ms = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const resultNum = formatAuditTimestamp(ms);
+    expect(resultNum.isValid).toBe(true);
+    expect(resultNum.formatted).toBe("2026-01-01 00:00:00 UTC");
+
+    const resultStr = formatAuditTimestamp(String(ms));
+    expect(resultStr.isValid).toBe(true);
+    expect(resultStr.formatted).toBe("2026-01-01 00:00:00 UTC");
+  });
+
+  it("returns clear fallback for invalid or unparseable timestamps", () => {
+    const invalidRes = formatAuditTimestamp("not-a-valid-date");
+    expect(invalidRes.isValid).toBe(false);
+    expect(invalidRes.dateTime).toBeUndefined();
+    expect(invalidRes.formatted).toBe("Invalid timestamp");
+    expect(invalidRes.timeOnly).toBe("Invalid timestamp");
+  });
+
+  it("returns clear fallback for null, undefined, or empty string", () => {
+    expect(formatAuditTimestamp(null)).toEqual({
+      formatted: "Invalid timestamp",
+      timeOnly: "Invalid timestamp",
+      isValid: false,
+    });
+    expect(formatAuditTimestamp(undefined)).toEqual({
+      formatted: "Invalid timestamp",
+      timeOnly: "Invalid timestamp",
+      isValid: false,
+    });
+    expect(formatAuditTimestamp("")).toEqual({
+      formatted: "Invalid timestamp",
+      timeOnly: "Invalid timestamp",
+      isValid: false,
+    });
   });
 });

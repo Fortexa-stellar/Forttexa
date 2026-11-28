@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
-import { resolveRequestId } from "@/lib/http/request-id";
 import { getMetricsSnapshot, recordApiMetric, toPrometheusText } from "@/lib/observability/metrics";
+import { securityHeadersForRequest } from "@/lib/security/headers";
 
 export async function GET(request: NextRequest) {
   const auth = requireAuth(request, { allowedRoles: ["operator"] });
@@ -11,7 +11,6 @@ export async function GET(request: NextRequest) {
     return auth.response;
   }
 
-  const requestId = resolveRequestId(request);
   const format = request.nextUrl.searchParams.get("format")?.toLowerCase();
 
   recordApiMetric({
@@ -25,16 +24,14 @@ export async function GET(request: NextRequest) {
     return new NextResponse(toPrometheusText(), {
       status: 200,
       headers: {
+        ...securityHeadersForRequest(request, { noStore: true }),
         "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
-        "x-request-id": requestId,
       },
     });
   }
 
   return NextResponse.json(getMetricsSnapshot(), {
     status: 200,
-    headers: {
-      "x-request-id": requestId,
-    },
+    headers: securityHeadersForRequest(request, { noStore: true }),
   });
 }

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { requestIdFor } from "@/lib/http/request-id";
 import { AUTH_COOKIE_KEY, verifySessionToken } from "@/lib/auth/session";
-import { resolveRequestId } from "@/lib/http/request-id";
 import { applySecurityHeaders } from "@/lib/security/headers";
 
 const PROTECTED_PREFIXES = [
@@ -44,8 +44,10 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const response = NextResponse.next();
-  const requestId = resolveRequestId(request);
+  const requestId = requestIdFor(request);
+  const forwardedHeaders = new Headers(request.headers);
+  forwardedHeaders.set("x-request-id", requestId);
+  const response = NextResponse.next({ request: { headers: forwardedHeaders } });
 
   // Share the exact same header writer as the auth/payment route handlers so
   // page and API responses never drift apart.
@@ -53,5 +55,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api|icon.jpg).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.jpg).*)"],
 };
