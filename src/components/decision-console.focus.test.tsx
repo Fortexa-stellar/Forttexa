@@ -1,13 +1,31 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { DecisionConsole } from "./decision-console";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock dependencies
-jest.mock("@/lib/auth/use-auth-session", () => ({
+type Props = Record<string, unknown>;
+type TreeNode = { type?: unknown; props?: Props };
+
+const harness = vi.hoisted(() => ({
+  stateIndex: 0,
+  refIndex: 0,
+  states: [] as unknown[],
+  setters: [] as Array<(value: unknown) => void>,
+  refs: [] as Array<{ current: unknown }>,
+  effects: [] as Array<() => void | (() => void)>,
+  headingFocus: [vi.fn(), vi.fn(), vi.fn(), vi.fn()],
+}));
+
+const freighter = vi.hoisted(() => ({
+  isConnected: vi.fn(),
+  getNetwork: vi.fn(),
+  signTransaction: vi.fn(),
+}));
+
+vi.mock("@stellar/freighter-api", () => freighter);
+
+vi.mock("@/lib/auth/use-auth-session", () => ({
   useAuthSession: () => ({ isOperator: true, loading: false }),
 }));
 
-jest.mock("@/lib/scenarios/seed", () => ({
+vi.mock("@/lib/scenarios/seed", () => ({
   demoScenarios: [
     {
       id: "test-scenario",
@@ -24,202 +42,293 @@ jest.mock("@/lib/scenarios/seed", () => ({
   ],
 }));
 
+vi.mock("lucide-react", () => ({
+  Loader2: () => null,
+  Sparkles: () => null,
+  ChevronRight: () => null,
+  ChevronLeft: () => null,
+  ShieldAlert: () => null,
+  Play: () => null,
+  Hand: () => null,
+  RefreshCcw: () => null,
+}));
+
+vi.mock("@/components/ui/alert", () => ({
+  Alert: (props: Props) => ({ type: "Alert", props }),
+  AlertTitle: (props: Props) => ({ type: "AlertTitle", props }),
+  AlertDescription: (props: Props) => ({ type: "AlertDescription", props }),
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: (props: Props) => ({ type: "Button", props }),
+}));
+
+vi.mock("@/components/ui/card", () => ({
+  Card: (props: Props) => ({ type: "Card", props }),
+  CardHeader: (props: Props) => ({ type: "CardHeader", props }),
+  CardTitle: (props: Props) => ({ type: "CardTitle", props }),
+  CardDescription: (props: Props) => ({ type: "CardDescription", props }),
+  CardContent: (props: Props) => ({ type: "CardContent", props }),
+}));
+
+vi.mock("@/components/ui/input", () => ({
+  Input: (props: Props) => ({ type: "Input", props }),
+}));
+
+vi.mock("@/components/ui/stepper", () => ({
+  Stepper: () => null,
+}));
+
+vi.mock("@/components/decision-badge", () => ({
+  DecisionBadge: () => null,
+}));
+
+vi.mock("@/components/decision-result-view", () => ({
+  DecisionResultView: () => null,
+}));
+
+vi.mock("react", async () => {
+  const original = await vi.importActual<typeof import("react")>("react");
+  return {
+    ...original,
+    useState: (initialValue: unknown) => {
+      const index = harness.stateIndex++;
+      if (harness.states.length <= index) {
+        harness.states.push(
+          typeof initialValue === "function" ? (initialValue as () => unknown)() : initialValue,
+        );
+        harness.setters.push((next: unknown) => {
+          harness.states[index] =
+            typeof next === "function"
+              ? (next as (prev: unknown) => unknown)(harness.states[index])
+              : next;
+        });
+      }
+      return [harness.states[index], harness.setters[index]];
+    },
+    useRef: (initialValue: unknown) => {
+      const index = harness.refIndex++;
+      if (harness.refs.length <= index) {
+        harness.refs.push(
+          index >= 1 && index <= 4
+            ? { current: { focus: harness.headingFocus[index - 1] } }
+            : { current: initialValue },
+        );
+      }
+      return harness.refs[index];
+    },
+    useMemo: (factory: () => unknown) => factory(),
+    useEffect: (effect: () => void | (() => void)) => {
+      harness.effects.push(effect);
+    },
+  };
+});
+
+import { CardTitle } from "@/components/ui/card";
+import { DecisionConsole } from "./decision-console";
+
+const STEP = 0;
+const HEADINGS = ["Define intent", "Evaluate", "Human approval", "Execute payment"];
+
+const fetchMock = vi.fn();
+global.fetch = fetchMock;
+
+function treeText(node: unknown): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(treeText).join("");
+  if (node && typeof node === "object" && "props" in (node as TreeNode)) {
+    return treeText((node as TreeNode).props?.children);
+  }
+  return "";
+}
+
+function walk(node: unknown, visit: (node: TreeNode) => void): void {
+  if (Array.isArray(node)) {
+    node.forEach((child) => walk(child, visit));
+    return;
+  }
+  if (node && typeof node === "object" && "props" in (node as TreeNode)) {
+    const tree = node as TreeNode;
+    visit(tree);
+    walk(tree.props?.children, visit);
+  }
+}
+
+function findClickable(node: unknown, label: string): TreeNode | undefined {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const hit = findClickable(child, label);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+  if (node && typeof node === "object" && "props" in (node as TreeNode)) {
+    const tree = node as TreeNode;
+    if (typeof tree.props?.onClick === "function" && treeText(tree).includes(label)) {
+      return tree;
+    }
+    return findClickable(tree.props?.children, label);
+  }
+  return undefined;
+}
+
+function renderConsole(): TreeNode {
+  harness.stateIndex = 0;
+  harness.refIndex = 0;
+  harness.effects.length = 0;
+  const tree = DecisionConsole() as unknown as TreeNode;
+  harness.effects.forEach((effect) => effect());
+  return tree;
+}
+
+function click(tree: TreeNode, label: string): void | Promise<void> {
+  const button = findClickable(tree, label);
+  expect(button).toBeDefined();
+  return (button!.props!.onClick as () => void | Promise<void>)();
+}
+
+function heading(tree: TreeNode, label: string): Props {
+  let found: Props | undefined;
+  walk(tree, (node) => {
+    if (node.type === CardTitle && treeText(node.props?.children).includes(label)) {
+      found = node.props;
+    }
+  });
+  expect(found, label).toBeDefined();
+  return found!;
+}
+
+function expectOnlyHeadingFocused(step: number) {
+  harness.headingFocus.forEach((focus, index) => {
+    if (index === step - 1) {
+      expect(focus).toHaveBeenCalledTimes(1);
+    } else {
+      expect(focus).not.toHaveBeenCalled();
+    }
+  });
+}
+
+function decisionResponse(decision: string) {
+  return {
+    ok: true,
+    json: async () => ({
+      result: { decision },
+      auditEntry: { id: "test-audit-id" },
+      usage: { spentXLM: 0.1, toolCalls: 1 },
+    }),
+  };
+}
+
+async function flush() {
+  for (let i = 0; i < 30; i++) {
+    await Promise.resolve();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function evaluate(tree: TreeNode) {
+  const pending = click(tree, "Run evaluation");
+  await flush();
+  await pending;
+}
+
 describe("DecisionConsole - Focus Management", () => {
   beforeEach(() => {
-    // Mock fetch for API calls
-    global.fetch = jest.fn();
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  it("should move focus to step 2 heading when clicking Continue from step 1", async () => {
-    const user = userEvent.setup();
-    render(<DecisionConsole />);
-
-    // Step 1 should be visible
-    const step1Heading = screen.getByRole("heading", { name: /define intent/i });
-    expect(step1Heading).toBeInTheDocument();
-
-    // Click Continue button
-    const continueButton = screen.getByRole("button", { name: /continue/i });
-    await user.click(continueButton);
-
-    // Wait for step 2 to render
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /evaluate/i })).toBeInTheDocument();
-    });
-
-    // Check that focus moved to step 2 heading
-    const step2Heading = screen.getByRole("heading", { name: /evaluate/i });
-    expect(step2Heading).toHaveFocus();
-  });
-
-  it("should move focus to step 1 heading when clicking Back from step 2", async () => {
-    const user = userEvent.setup();
-    render(<DecisionConsole />);
-
-    // Navigate to step 2
-    const continueButton = screen.getByRole("button", { name: /continue/i });
-    await user.click(continueButton);
-
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /evaluate/i })).toBeInTheDocument();
-    });
-
-    // Click Back button
-    const backButton = screen.getByRole("button", { name: /back/i });
-    await user.click(backButton);
-
-    // Wait for step 1 to render
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /define intent/i })).toBeInTheDocument();
-    });
-
-    // Check that focus moved to step 1 heading
-    const step1Heading = screen.getByRole("heading", { name: /define intent/i });
-    expect(step1Heading).toHaveFocus();
+    harness.stateIndex = 0;
+    harness.refIndex = 0;
+    harness.states.length = 0;
+    harness.setters.length = 0;
+    harness.refs.length = 0;
+    harness.effects.length = 0;
+    harness.headingFocus.forEach((focus) => focus.mockClear());
+    fetchMock.mockReset();
+    freighter.isConnected.mockReset().mockResolvedValue({ isConnected: true });
+    freighter.getNetwork.mockReset().mockResolvedValue({ networkPassphrase: "TESTNET" });
+    freighter.signTransaction.mockReset();
   });
 
   it("should NOT move focus during initial page render", () => {
-    render(<DecisionConsole />);
+    renderConsole();
 
-    const step1Heading = screen.getByRole("heading", { name: /define intent/i });
-    
-    // Focus should not be on the heading initially
-    expect(step1Heading).not.toHaveFocus();
+    harness.headingFocus.forEach((focus) => expect(focus).not.toHaveBeenCalled());
   });
 
-  it("should make all step headings focusable programmatically with tabIndex=-1", async () => {
-    const user = userEvent.setup();
-    render(<DecisionConsole />);
-
-    // Check step 1 heading has tabIndex=-1
-    const step1Heading = screen.getByRole("heading", { name: /define intent/i });
-    expect(step1Heading).toHaveAttribute("tabindex", "-1");
-
-    // Navigate to step 2 and check
-    await user.click(screen.getByRole("button", { name: /continue/i }));
-    
-    await waitFor(() => {
-      const step2Heading = screen.getByRole("heading", { name: /evaluate/i });
-      expect(step2Heading).toHaveAttribute("tabindex", "-1");
+  it("should make all step headings focusable programmatically with tabIndex=-1", () => {
+    HEADINGS.forEach((label, index) => {
+      harness.states[STEP] = index + 1;
+      const tree = renderConsole();
+      expect(heading(tree, label).tabIndex).toBe(-1);
     });
+  });
+
+  it("should move focus to step 2 heading when clicking Continue from step 1", () => {
+    const tree = renderConsole();
+    expect(harness.states[STEP]).toBe(1);
+
+    click(tree, "Continue");
+    expect(harness.states[STEP]).toBe(2);
+
+    renderConsole();
+    expectOnlyHeadingFocused(2);
+  });
+
+  it("should move focus to step 1 heading when clicking Back from step 2", () => {
+    click(renderConsole(), "Continue");
+    expect(harness.states[STEP]).toBe(2);
+    renderConsole();
+
+    harness.headingFocus.forEach((focus) => focus.mockClear());
+    const step2Tree = renderConsole();
+    click(step2Tree, "Back");
+    expect(harness.states[STEP]).toBe(1);
+
+    renderConsole();
+    expectOnlyHeadingFocused(1);
   });
 
   it("should move focus to step 4 heading after Run Evaluation completes with ALLOW decision", async () => {
-    const user = userEvent.setup();
-    
-    // Mock successful decision API response
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        result: { decision: "ALLOW" },
-        auditEntry: { id: "test-audit-id" },
-        usage: { spentXLM: 0.1, toolCalls: 1 },
-      }),
-    });
+    fetchMock.mockResolvedValueOnce(decisionResponse("ALLOW"));
 
-    render(<DecisionConsole />);
+    click(renderConsole(), "Continue");
+    const step2Tree = renderConsole();
+    harness.headingFocus.forEach((focus) => focus.mockClear());
 
-    // Navigate to step 2
-    await user.click(screen.getByRole("button", { name: /continue/i }));
+    await evaluate(step2Tree);
+    expect(harness.states[STEP]).toBe(4);
 
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /evaluate/i })).toBeInTheDocument();
-    });
-
-    // Click Run evaluation (this will transition to step 4 for ALLOW decision)
-    const runButton = screen.getByRole("button", { name: /run evaluation/i });
-    await user.click(runButton);
-
-    // Wait for step 4 to render
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /execute payment/i })).toBeInTheDocument();
-    });
-
-    // Focus should move to step 4 heading (user-triggered async action)
-    const step4Heading = screen.getByRole("heading", { name: /execute payment/i });
-    expect(step4Heading).toHaveFocus();
+    renderConsole();
+    expectOnlyHeadingFocused(4);
   });
 
   it("should move focus to step 3 heading after Run Evaluation completes with REQUIRE_APPROVAL decision", async () => {
-    const user = userEvent.setup();
-    
-    // Mock decision API response with REQUIRE_APPROVAL
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        result: { decision: "REQUIRE_APPROVAL" },
-        auditEntry: { id: "test-audit-id" },
-        usage: { spentXLM: 0.1, toolCalls: 1 },
-      }),
-    });
+    fetchMock.mockResolvedValueOnce(decisionResponse("REQUIRE_APPROVAL"));
 
-    render(<DecisionConsole />);
+    click(renderConsole(), "Continue");
+    const step2Tree = renderConsole();
+    harness.headingFocus.forEach((focus) => focus.mockClear());
 
-    // Navigate to step 2
-    await user.click(screen.getByRole("button", { name: /continue/i }));
+    await evaluate(step2Tree);
+    expect(harness.states[STEP]).toBe(3);
 
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /evaluate/i })).toBeInTheDocument();
-    });
-
-    // Click Run evaluation
-    const runButton = screen.getByRole("button", { name: /run evaluation/i });
-    await user.click(runButton);
-
-    // Wait for step 3 to render
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /human approval/i })).toBeInTheDocument();
-    });
-
-    // Focus should move to step 3 heading
-    const step3Heading = screen.getByRole("heading", { name: /human approval/i });
-    expect(step3Heading).toHaveFocus();
+    renderConsole();
+    expectOnlyHeadingFocused(3);
   });
 
   it("should move focus to step 2 heading when clicking Back from step 3", async () => {
-    const user = userEvent.setup();
-    
-    // Mock decision API response with REQUIRE_APPROVAL to reach step 3
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        result: { decision: "REQUIRE_APPROVAL" },
-        auditEntry: { id: "test-audit-id" },
-        usage: { spentXLM: 0.1, toolCalls: 1 },
-      }),
-    });
+    fetchMock.mockResolvedValueOnce(decisionResponse("REQUIRE_APPROVAL"));
 
-    render(<DecisionConsole />);
+    click(renderConsole(), "Continue");
+    await evaluate(renderConsole());
+    expect(harness.states[STEP]).toBe(3);
+    renderConsole();
 
-    // Navigate to step 2
-    await user.click(screen.getByRole("button", { name: /continue/i }));
+    harness.headingFocus.forEach((focus) => focus.mockClear());
+    const step3Tree = renderConsole();
+    click(step3Tree, "Back");
+    expect(harness.states[STEP]).toBe(2);
 
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /evaluate/i })).toBeInTheDocument();
-    });
-
-    // Run evaluation to reach step 3
-    await user.click(screen.getByRole("button", { name: /run evaluation/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /human approval/i })).toBeInTheDocument();
-    });
-
-    // Click Back button from step 3
-    const backButton = screen.getByRole("button", { name: /back/i });
-    await user.click(backButton);
-
-    // Wait for step 2 to render
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /evaluate/i })).toBeInTheDocument();
-    });
-
-    // Focus should move to step 2 heading
-    const step2Heading = screen.getByRole("heading", { name: /evaluate/i });
-    expect(step2Heading).toHaveFocus();
+    renderConsole();
+    expectOnlyHeadingFocused(2);
   });
 });
