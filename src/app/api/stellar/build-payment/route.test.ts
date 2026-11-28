@@ -218,6 +218,19 @@ beforeEach(async () => {
 });
 
 describe("POST /api/stellar/build-payment quote verification", () => {
+  it("returns 415 for non-JSON content type", async () => {
+    const request = new NextRequest("http://localhost/api/stellar/build-payment", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "some text body",
+    });
+
+    const response = await buildPaymentPost(request);
+    expect(response.status).toBe(415);
+    const payload = (await response.json()) as { error: string };
+    expect(payload.error).toBe("Unsupported media type. Expected application/json.");
+  });
+
   it("rejects operator-only wallets", async () => {
     const response = await buildPaymentPost(jsonRequest(
       "http://localhost/api/stellar/build-payment",

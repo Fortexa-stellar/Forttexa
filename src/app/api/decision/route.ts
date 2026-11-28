@@ -2,6 +2,7 @@ import { readJsonBody } from "@/lib/http/read-json-body";
 import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 
+import { requireJsonContentType } from "@/lib/http/require-json-content-type";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { decisionAmountStroops, evaluateDecision } from "@/lib/decision/engine";
 import { jsonWithRequestContext } from "@/lib/observability/http";
@@ -30,6 +31,7 @@ import { decisionRequestSchema } from "@/lib/validation/schemas";
 export async function POST(request: NextRequest) {
   const startedAtMs = Date.now();
   const context = getRequestLogContext(request, "/api/decision");
+
   let requestBody: unknown;
   const respond: typeof jsonWithRequestContext = (incoming, input) =>
     jsonWithRequestContext(incoming, {
@@ -37,6 +39,19 @@ export async function POST(request: NextRequest) {
       logExchange: true,
       requestBody,
     });
+
+  // Enforce JSON content type before doing any other work so unsupported
+  // payloads get a stable 415 instead of a generic parse failure.
+  const contentTypeCheck = requireJsonContentType(request);
+  if (!contentTypeCheck.ok) {
+    logWarn("Decision route unsupported content type", context);
+    return respond(request, {
+      route: "/api/decision",
+      startedAtMs,
+      status: 415,
+      body: { error: contentTypeCheck.error, code: "UNSUPPORTED_MEDIA_TYPE" },
+    });
+  }
 
   // Read the body before consuming the rate budget so the gate can check the
   // requested destination against the blocklist in the same atomic step.

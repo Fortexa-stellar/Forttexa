@@ -93,6 +93,19 @@ describe("/api/decision route", () => {
     },
   );
 
+  it("returns 415 for non-JSON content type", async () => {
+    const request = new NextRequest("http://localhost/api/decision", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "some text body",
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(415);
+    const payload = (await response.json()) as { error: string };
+    expect(payload.error).toBe("Unsupported media type. Expected application/json.");
+  });
+
   it("returns 401 when unauthenticated", async () => {
     const request = new NextRequest("http://localhost/api/decision", {
       method: "POST",

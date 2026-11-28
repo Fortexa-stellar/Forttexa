@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { requireJsonContentType } from "@/lib/http/require-json-content-type";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { readJsonBody } from "@/lib/http/read-json-body";
 import { getProtectedPaymentFlowReadinessReport } from "@/lib/readiness/production";
@@ -19,6 +20,16 @@ import {
 } from "@/lib/validation/errors";
 
 export async function POST(request: NextRequest) {
+  // Enforce JSON content type before doing any other work so unsupported
+  // payloads get a stable 415 instead of a generic parse failure.
+  const contentTypeCheck = requireJsonContentType(request);
+  if (!contentTypeCheck.ok) {
+    return NextResponse.json(
+      { error: "Unsupported media type. Expected application/json." },
+      { status: 415 },
+    );
+  }
+
   // Read the body first so the gate can blocklist-check the destination in
   // the same atomic step as the rate-limit consumption (issue #202).
   const bodyResult = await readJsonBody(request);
