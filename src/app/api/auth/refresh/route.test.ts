@@ -33,7 +33,7 @@ function refreshRequest(cookie?: string) {
     method: "POST",
     headers: {
       ...(cookie ? { cookie } : {}),
-      "x-forwarded-for": CLIENT_IP,
+      "x-real-ip": CLIENT_IP,
     },
   });
 }

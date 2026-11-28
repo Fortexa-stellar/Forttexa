@@ -33,7 +33,7 @@ function request(method: "GET" | "POST", body?: unknown) {
     headers: {
       cookie: `${AUTH_COOKIE_KEY}=${token}`,
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      "x-forwarded-for": "192.0.2.237",
+      "x-real-ip": "192.0.2.237",
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
