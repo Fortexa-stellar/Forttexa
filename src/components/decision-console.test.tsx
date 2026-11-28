@@ -195,6 +195,39 @@ beforeEach(() => {
   });
 });
 
+describe("DecisionConsole evaluation", () => {
+  it.each([false, true])("blocks same-render duplicate requests and unlocks after ok=%s", async (ok) => {
+    let resolveResponse!: (value: unknown) => void;
+    const response = {
+      ok,
+      json: async () => ok
+        ? { result: { decision: "BLOCK" }, auditEntry: { id: "audit-eval" } }
+        : { error: "Evaluation failed" },
+    };
+    fetchMock
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveResponse = resolve; }))
+      .mockResolvedValue(response);
+
+    renderConsole();
+    states[STEP] = 2;
+    const button = findClickable(renderConsole(), "Run evaluation");
+    expect(button?.props?.disabled).toBe(false);
+    const click = button!.props!.onClick as () => Promise<void>;
+    const first = click();
+    await click();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/decision");
+    expect(findClickable(renderConsole(), "Run evaluation")?.props?.disabled).toBe(true);
+
+    resolveResponse(response);
+    await first;
+    expect(findClickable(renderConsole(), "Run evaluation")?.props?.disabled).toBe(false);
+    await click();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("DecisionConsole wallet signing", () => {
   it("opens one Freighter prompt for repeated clicks and restores the action after completion", async () => {
     let resolveSign!: (value: unknown) => void;

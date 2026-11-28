@@ -115,6 +115,7 @@ export function DecisionConsole() {
   // Set synchronously before the first await so a second click that lands before
   // React re-renders with `signing` still cannot open a competing wallet prompt.
   const signingRef = useRef(false);
+  const evaluationInFlight = useRef(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [signError, setSignError] = useState<{ code: FreighterSignErrorCode; message: string } | null>(null);
 
@@ -175,7 +176,7 @@ export function DecisionConsole() {
   }
 
   async function runDecision(approvedByHuman = false, actionOverride?: AgentAction) {
-    if (!ensureOperator()) return;
+    if (evaluationInFlight.current || !ensureOperator()) return;
     if (!selectedScenario && !actionOverride && !generatedAction) return;
 
     if (approvedByHuman && !canHumanApprove) {
@@ -183,6 +184,8 @@ export function DecisionConsole() {
       return;
     }
 
+    // Guard synchronously because a second click can precede the disabled render.
+    evaluationInFlight.current = true;
     setLoading(true);
     setMessage(null);
 
@@ -256,6 +259,7 @@ export function DecisionConsole() {
       setMessage(err);
       pushToast("error", err);
     } finally {
+      evaluationInFlight.current = false;
       setLoading(false);
     }
   }
