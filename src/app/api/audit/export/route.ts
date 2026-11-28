@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { markNoStore } from "@/lib/audit/no-store";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
@@ -29,6 +30,7 @@ function chainErrorResponse(
   return jsonWithRequestContext(request, {
     route: "/api/audit/export",
     startedAtMs,
+    noStore: true,
     status,
     body: {
       error: error.message,
@@ -54,7 +56,7 @@ export async function GET(request: NextRequest) {
 
   if (!auth.ok) {
     logWarn("Audit export unauthorized", context);
-    return auth.response;
+    return markNoStore(auth.response);
   }
 
   const format = request.nextUrl.searchParams.get("format")?.toLowerCase() ?? "json";
@@ -73,6 +75,7 @@ export async function GET(request: NextRequest) {
     return jsonWithRequestContext(request, {
       route: "/api/audit/export",
       startedAtMs,
+      noStore: true,
       status: 400,
       body: { error: validationError },
     });
@@ -87,6 +90,7 @@ export async function GET(request: NextRequest) {
       return jsonWithRequestContext(request, {
         route: "/api/audit/export",
         startedAtMs,
+        noStore: true,
         status: 400,
         body: { error: "Viewer role is limited to scope=mine." },
       });
@@ -96,6 +100,7 @@ export async function GET(request: NextRequest) {
       return jsonWithRequestContext(request, {
         route: "/api/audit/export",
         startedAtMs,
+        noStore: true,
         status: 400,
         body: { error: "format must be json or csv" },
       });
@@ -125,6 +130,7 @@ export async function GET(request: NextRequest) {
         return jsonWithRequestContext(request, {
           route: "/api/audit/export",
           startedAtMs,
+          noStore: true,
           status: 200,
           body: {
             scope: "all",
@@ -166,6 +172,7 @@ export async function GET(request: NextRequest) {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": `attachment; filename=${buildAuditExportFilename("all")}`,
           "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "no-store",
           "x-request-id": request.headers.get("x-request-id") ?? crypto.randomUUID(),
         },
       });
@@ -189,6 +196,7 @@ export async function GET(request: NextRequest) {
       return jsonWithRequestContext(request, {
         route: "/api/audit/export",
         startedAtMs,
+        noStore: true,
         status: 200,
         body: {
           scope: "mine",
@@ -221,6 +229,7 @@ export async function GET(request: NextRequest) {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename=${filenameMine}`,
         "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
         "x-request-id": request.headers.get("x-request-id") ?? crypto.randomUUID(),
       },
     });
@@ -244,6 +253,7 @@ export async function GET(request: NextRequest) {
     return jsonWithRequestContext(request, {
       route: "/api/audit/export",
       startedAtMs,
+      noStore: true,
       status: 500,
       body: {
         error: error instanceof Error ? error.message : "Failed to export audit data.",

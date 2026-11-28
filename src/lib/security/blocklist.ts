@@ -2,6 +2,8 @@ import { hasEmbeddedCredentials } from "@/lib/validation/remote-urls";
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_FETCH_TIMEOUT_MS = 5000; // 5 second timeout for blocklist fetch
+const MIN_FETCH_TIMEOUT_MS = 100;
+const MAX_FETCH_TIMEOUT_MS = 30000;
 const MAX_BLOCKLIST_RESPONSE_BYTES = 1024 * 1024; // 1 MiB
 
 async function readLimitedResponseBody(response: Response): Promise<string> {
@@ -40,6 +42,13 @@ export class BlocklistUrlError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BlocklistUrlError";
+  }
+}
+
+export class BlocklistFetchError extends Error {
+  constructor(readonly code: "BLOCKLIST_FETCH_TIMEOUT" | "BLOCKLIST_FETCH_FAILED") {
+    super(code);
+    this.name = "BlocklistFetchError";
   }
 }
 
@@ -106,13 +115,19 @@ export type BlocklistHealth = {
 };
 
 /** Get the configured blocklist fetch timeout in milliseconds. */
-function getBlocklistTimeout(): number {
+export function getBlocklistTimeoutMs(): number {
   const envTimeout = process.env.FORTEXA_BLOCKLIST_TIMEOUT_MS;
   if (envTimeout) {
-    const parsed = parseInt(envTimeout, 10);
-    return isNaN(parsed) ? DEFAULT_FETCH_TIMEOUT_MS : Math.max(100, parsed);
+    const parsed = Number(envTimeout);
+    if (Number.isSafeInteger(parsed) && parsed > 0) {
+      return Math.min(MAX_FETCH_TIMEOUT_MS, Math.max(MIN_FETCH_TIMEOUT_MS, parsed));
+    }
   }
   return DEFAULT_FETCH_TIMEOUT_MS;
+}
+
+export function getCachedBlocklist(): string[] {
+  return [...cachedDomains];
 }
 
 /** Return current blocklist feed health without triggering a refresh. */
@@ -149,7 +164,7 @@ export async function fetchBlocklist(): Promise<string[]> {
   if (Date.now() < cacheExpiresAt) return cachedDomains;
 
   try {
-    const timeoutMs = getBlocklistTimeout();
+    const timeoutMs = getBlocklistTimeoutMs();
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -172,9 +187,10 @@ export async function fetchBlocklist(): Promise<string[]> {
     lastRefreshAt = new Date().toISOString();
     lastErrorSummary = null;
   } catch (err) {
-    lastErrorSummary =
-      err instanceof Error ? err.message : "Unknown fetch error";
-    throw err;
+    const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    const code = timedOut ? "BLOCKLIST_FETCH_TIMEOUT" : "BLOCKLIST_FETCH_FAILED";
+    lastErrorSummary = code;
+    throw new BlocklistFetchError(code);
   }
 
   return cachedDomains;

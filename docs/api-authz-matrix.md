@@ -38,7 +38,7 @@ Session tokens are signed HMAC-SHA256 cookies (`fortexa_session`) carrying a gen
 
 | Method | Route | Access Level | Unauthenticated | Viewer | State-Changing | Notes |
 |--------|-------|-------------|-----------------|--------|----------------|-------|
-| GET | `/api/audit` | operator, viewer | 401 | 200 | No | Lists audit entries for the authenticated user |
+| GET | `/api/audit` | operator, viewer | 401 | 200 | No | Lists audit entries for the authenticated user; `limit` defaults to 50 and must be 1–100, while numeric `offset` or `cursor` defaults to 0 and must be 0–10,000. `cursor` is an offset alias; do not send both. Invalid values return 400 with `invalid_pagination_parameters`; successful responses include `pagination.nextCursor`. |
 | GET | `/api/audit/export` | operator, viewer | 401 | 200 (scope=mine only) | No | Exports audit entries; viewers restricted to `scope=mine`; operators may use `scope=all` |
 
 ### Decision Routes

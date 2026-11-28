@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 
 import { AuditChainError, verifyAuditChain } from "@/lib/audit/hash-chain";
+import { markNoStore } from "@/lib/audit/no-store";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { jsonWithRequestContext } from "@/lib/observability/http";
-import { getRequestLogContext, logInfo, logWarn } from "@/lib/observability/logger";
+import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { listAllAuditEntriesByUser, listAuditEntries } from "@/lib/storage/audit-store";
 
 type IntegrityResponse = {
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   if (!auth.ok) {
     logWarn("Audit integrity unauthorized", context);
-    return auth.response;
+    return markNoStore(auth.response);
   }
 
   const scopeParam = request.nextUrl.searchParams.get("scope")?.toLowerCase() ?? "mine";
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
     return jsonWithRequestContext(request, {
       route: "/api/audit/integrity",
       startedAtMs,
+      noStore: true,
       status: 400,
       body: { error: "scope must be 'mine' or 'all'" },
     });
@@ -53,6 +55,7 @@ export async function GET(request: NextRequest) {
     return jsonWithRequestContext(request, {
       route: "/api/audit/integrity",
       startedAtMs,
+      noStore: true,
       status: 403,
       body: { error: "Only operators may verify cross-user audit integrity." },
     });
@@ -75,6 +78,7 @@ export async function GET(request: NextRequest) {
         return jsonWithRequestContext(request, {
           route: "/api/audit/integrity",
           startedAtMs,
+          noStore: true,
           status: 200,
           body: {
             valid: true,
@@ -98,6 +102,7 @@ export async function GET(request: NextRequest) {
       return jsonWithRequestContext(request, {
         route: "/api/audit/integrity",
         startedAtMs,
+        noStore: true,
         status: 200,
         body: {
           valid: false,
@@ -112,7 +117,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const allByUser = await listAllAllUditEntriesByUser();
+    const allByUser = await listAllAuditEntriesByUser();
     let checkedEntries = 0;
     let legacyEntries = 0;
     let firstBroken: { entryId: string | null; reason: string } | null = null;
@@ -168,6 +173,7 @@ export async function GET(request: NextRequest) {
     return jsonWithRequestContext(request, {
       route: "/api/audit/integrity",
       startedAtMs,
+      noStore: true,
       status: 200,
       body: responseBody,
     });
@@ -183,6 +189,7 @@ export async function GET(request: NextRequest) {
       return jsonWithRequestContext(request, {
         route: "/api/audit/integrity",
         startedAtMs,
+        noStore: true,
         status,
         body: {
           error: error.message,
@@ -191,6 +198,17 @@ export async function GET(request: NextRequest) {
         },
       });
     }
-    throw error;
+    logError("Audit integrity internal error", {
+      ...context,
+      userId: auth.session.userId,
+      detail: error instanceof Error ? error.message : "unknown",
+    });
+    return jsonWithRequestContext(request, {
+      route: "/api/audit/integrity",
+      startedAtMs,
+      noStore: true,
+      status: 500,
+      body: { error: "Failed to verify audit integrity." },
+    });
   }
 }

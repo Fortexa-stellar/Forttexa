@@ -57,24 +57,16 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test feature
-        run: npx vitest run src/components/activity-timeline.test.ts src/lib/utils/format.test.ts
-
       - name: Typecheck
         run: npm run typecheck
-        continue-on-error: true
 
       - name: Test
         run: npm run test
-        continue-on-error: true
 
       - name: Build
         run: npm run build
-        continue-on-error: true
-
       - name: Verify the production build left the worktree clean
         run: git diff --exit-code
-        continue-on-error: true
 
       - name: Check documentation links
         run: npm run check:docs
@@ -84,7 +76,6 @@ jobs:
       # No real secrets are used; fixtures live under fixtures/production-readiness/.
       - name: Production readiness checker (fixtures)
         run: npm run check:production-readiness -- --config fixtures/production-readiness/valid.json
-        continue-on-error: true
 
       - name: Production readiness checker expected failure (fixtures)
         run: |
@@ -92,4 +83,3 @@ jobs:
             echo "Expected production readiness checker to fail on invalid fixture" >&2
             exit 1
           fi
-        continue-on-error: true
