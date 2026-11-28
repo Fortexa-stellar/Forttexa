@@ -1,7 +1,6 @@
 import { evaluatePolicy, readAmountStroops } from "@/lib/policy/engine";
 import { evaluateSecurity } from "@/lib/security/analyzer";
 import { checkBlocklist } from "@/lib/security/blocklist";
-import { getUserWallet } from "@/lib/storage/user-wallet-store";
 import type {
   AgentAction,
   DailyUsage,
@@ -23,15 +22,6 @@ function decideExplanation(result: DecisionResult): string {
   }
 
   return "Fortexa approved this action. Policy checks and risk analysis are within trusted operating bounds.";
-}
-
-/**
- * Whether the user still has an active wallet binding. Revoking a wallet
- * deletes the binding, so every later decision request fails this gate.
- */
-export async function canPassDecisionGate(userId: string): Promise<boolean> {
-  const wallet = await getUserWallet(userId);
-  return wallet !== null && !("expired" in wallet);
 }
 
 /** Payment amount stored on an allowing decision, as a stroop integer string. */

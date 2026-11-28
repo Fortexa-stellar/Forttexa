@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { requireActiveAuth } from "@/lib/auth/require-auth";
-import { AUTH_COOKIE_KEY, rotateSessionToken } from "@/lib/auth/session";
+import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logInfo, logWarn } from "@/lib/observability/logger";
 import { getUserWallet } from "@/lib/storage/user-wallet-store";
@@ -36,38 +36,25 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // A wallet-backed session must still own an active binding. Sessions minted
-  // without a public key (non-wallet sessions) skip this wallet-only check;
-  // their revocation is still enforced by requireActiveAuth above.
-  if (sessionWallet) {
-    const assignedWallet = await getUserWallet(auth.session.userId);
-    if (!assignedWallet || ("expired" in assignedWallet && assignedWallet.expired)) {
-      logWarn("Auth refresh wallet revoked or expired", { ...context, userId: auth.session.userId });
-      const response = jsonWithRequestContext(request, {
-        route: "/api/auth/refresh",
-        startedAtMs,
-        status: 401,
-        body: { error: "Session wallet mapping has expired or been revoked." },
-      });
-      response.cookies.delete(AUTH_COOKIE_KEY);
-      return response;
-    }
-  }
-
-  // Rotate the generation of the existing session so every refresh shares one
-  // session id and logout can revoke them all in one step.
-  const rotated = rotateSessionToken(auth.session);
-  if (!rotated) {
-    logWarn("Auth refresh session rotation rejected", { ...context, userId: auth.session.userId });
+  const assignedWallet = await getUserWallet(auth.session.userId);
+  if (!assignedWallet || ("expired" in assignedWallet && assignedWallet.expired)) {
+    logWarn("Auth refresh wallet revoked or expired", { ...context, userId: auth.session.userId });
     const response = jsonWithRequestContext(request, {
       route: "/api/auth/refresh",
       startedAtMs,
       status: 401,
-      body: { error: "Session is no longer active. Log in again." },
+      body: { error: "Session wallet mapping has expired or been revoked." },
     });
     response.cookies.delete(AUTH_COOKIE_KEY);
     return response;
   }
+
+  const token = createSessionToken({
+    email: auth.session.email,
+    role: auth.session.role,
+    userId: auth.session.userId,
+    publicKey: sessionWallet,
+  });
 
   const response = jsonWithRequestContext(request, {
     route: "/api/auth/refresh",
@@ -85,7 +72,7 @@ export async function POST(request: NextRequest) {
     noStore: true,
   });
 
-  setSessionCookie(response, rotated.token);
+  setSessionCookie(response, token);
 
   logInfo("Auth refresh success", {
     ...context,

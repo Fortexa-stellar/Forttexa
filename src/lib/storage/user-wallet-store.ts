@@ -156,73 +156,6 @@ export async function getUserWallet(userId: string): Promise<UserWallet | { expi
   return userWallet;
 }
 
-export async function findUserWalletByPublicKey(publicKey: string): Promise<UserWallet | null> {
-  const normalizedKey = publicKey.trim().toUpperCase();
-
-  const db = await runWithDatabase("findUserWalletByPublicKey", async (pool) => {
-    const result = await pool.query<{
-      user_id: string;
-      public_key: string;
-      source: string;
-      provider: string | null;
-      created_at: string;
-      updated_at: string;
-      expires_at: string | null;
-    }>(
-      `
-        SELECT user_id, public_key, source, provider, created_at, updated_at, expires_at
-        FROM fortexa_wallets
-        WHERE public_key = $1
-          AND (expires_at IS NULL OR expires_at > NOW())
-        ORDER BY updated_at DESC
-        LIMIT 1
-      `,
-      [normalizedKey]
-    );
-
-    const row = result.rows[0];
-    if (!row) {
-      return null;
-    }
-
-    return {
-      userId: row.user_id,
-      publicKey: row.public_key,
-      source: "external" as const,
-      provider: row.provider ?? undefined,
-      createdAt: new Date(row.created_at).toISOString(),
-      updatedAt: new Date(row.updated_at).toISOString(),
-      expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : undefined,
-    };
-  });
-
-  if (db.available) {
-    return db.value;
-  }
-
-  const store = await readStore();
-  const match = Object.values(store.wallets).find((wallet) => {
-    if (!wallet || typeof wallet !== "object" || !("publicKey" in wallet)) {
-      return false;
-    }
-
-    const candidate = wallet as UserWallet;
-    const active = !candidate.expiresAt || new Date(candidate.expiresAt).getTime() >= Date.now();
-    return active && candidate.publicKey.trim().toUpperCase() === normalizedKey;
-  });
-
-  return (match as UserWallet | undefined) ?? null;
-}
-
-/**
- * A wallet record is revoked when it no longer exists for the user. Revocation
- * deletes the record, so a missing or expired binding cannot be reused.
- */
-export async function isUserWalletRevoked(userId: string): Promise<boolean> {
-  const wallet = await getUserWallet(userId);
-  return wallet === null || "expired" in wallet;
-}
-
 export async function upsertUserWallet(
   userId: string,
   payload: {
@@ -310,9 +243,7 @@ export async function upsertUserWallet(
     const store = await readStore();
     const now = new Date().toISOString();
     const current = store.wallets[userId] as UserWallet | undefined;
-    const currentIsActive =
-      current !== undefined &&
-      (!current.expiresAt || new Date(current.expiresAt).getTime() >= Date.now());
+    const currentIsActive = Boolean(current) && (!current.expiresAt || new Date(current.expiresAt).getTime() >= Date.now());
     const owner = Object.values(store.wallets).find((wallet) => {
       if (!wallet || typeof wallet !== "object" || !("publicKey" in wallet)) return false;
       const candidate = wallet as UserWallet;
@@ -323,7 +254,7 @@ export async function upsertUserWallet(
       throw new WalletAlreadyBoundError();
     }
 
-    const createdAt = currentIsActive && current ? current.createdAt : now;
+    const createdAt = currentIsActive ? current.createdAt : now;
     const expiresAt = payload.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const next: UserWallet = {
       userId,

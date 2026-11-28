@@ -337,23 +337,6 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // A wallet login signature is proof of authentication, never a transaction
-  // authorization. Reject it before the gate or any Horizon call so a login
-  // signature cannot be replayed against the payment flow.
-  if (bodyResult.ok && isLoginAuthorizationPayload(bodyResult.data)) {
-    logWarn("Submit signed rejected login authorization payload", context);
-    return respond(request, {
-      route: "/api/stellar/submit-signed",
-      startedAtMs,
-      status: 400,
-      body: {
-        error: "Login signatures cannot be submitted as transactions.",
-        code: "LOGIN_SIGNATURE_REJECTED",
-      },
-      headers: rateLimitHeaders(rate),
-    });
-  }
-
   maybeRunCleanup();
 
   try {

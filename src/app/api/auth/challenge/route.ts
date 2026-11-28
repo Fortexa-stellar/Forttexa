@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { isValidStellarAccount } from "@/lib/auth/stellar-account";
 import { createWalletChallenge, InvalidWalletPublicKeyError } from "@/lib/auth/wallet-challenge";
+import { readJsonBody } from "@/lib/http/read-json-body";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
@@ -41,8 +42,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const rawBody = (await request.json().catch(() => null)) as unknown;
-    const parsed = challengeSchema.safeParse(rawBody);
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      return jsonWithRequestContext(request, {
+        route: "/api/auth/challenge",
+        startedAtMs,
+        status: 413,
+        body: { error: body.error, code: "payload_too_large" },
+        headers: rateLimitHeaders(rate),
+        noStore: true,
+      });
+    }
+    const parsed = challengeSchema.safeParse(body.data);
 
     if (!parsed.success || !isValidStellarAccount(parsed.data.publicKey)) {
       // Log the reason only: a malformed identifier must not reach logs or the

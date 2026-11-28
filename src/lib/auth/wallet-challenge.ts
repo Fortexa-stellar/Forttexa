@@ -63,14 +63,15 @@ async function withChallengeVerificationLock<T>(
     release = resolve;
   });
 
-  challengeVerificationLocks.set(challengeId, previous.then(() => current));
+  const queued = previous.then(() => current);
+  challengeVerificationLocks.set(challengeId, queued);
   await previous;
 
   try {
     return await operation();
   } finally {
     release?.();
-    if (challengeVerificationLocks.get(challengeId) === current) {
+    if (challengeVerificationLocks.get(challengeId) === queued) {
       challengeVerificationLocks.delete(challengeId);
     }
   }

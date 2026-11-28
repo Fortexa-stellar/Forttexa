@@ -3,6 +3,7 @@ import type { ZodError } from "zod";
 import type { LogContext } from "@/lib/observability/logger";
 import { logWarn } from "@/lib/observability/logger";
 import { redactSensitiveFields } from "@/lib/observability/redact";
+import { MEMO_TOO_LONG_CODE } from "@/lib/stellar/memo";
 
 export const SENSITIVE_FIELD_KEYS = new Set([
   "api_key",
@@ -21,6 +22,10 @@ export const SENSITIVE_FIELD_KEYS = new Set([
 ]);
 
 const PUBLIC_SENSITIVE_FIELD_MESSAGE = "Invalid value.";
+
+// Stable codes that carry none of the submitted value, so they can be shown even
+// for a field whose other messages are hidden (the memo is free-form user text).
+const PUBLIC_SAFE_FIELD_CODES = new Set<string>([MEMO_TOO_LONG_CODE]);
 
 // Memo values carry free-text user content; never log them (issue #205).
 SENSITIVE_FIELD_KEYS.add("memo");
@@ -42,7 +47,13 @@ export function toPublicValidationDetails(error: ZodError): PublicValidationDeta
     [string, string[] | undefined]
   >) {
     if (fieldPathHasSensitiveKey(field)) {
-      fieldErrors[field] = [PUBLIC_SENSITIVE_FIELD_MESSAGE];
+      fieldErrors[field] = [
+        ...new Set(
+          ((messages as string[]) ?? []).map((message) =>
+            PUBLIC_SAFE_FIELD_CODES.has(message) ? message : PUBLIC_SENSITIVE_FIELD_MESSAGE,
+          ),
+        ),
+      ];
     } else {
       fieldErrors[field] = (messages as string[]) ?? [];
     }
