@@ -3,13 +3,14 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { clearLoginFailures, isLoginLocked, readClientIp, registerLoginFailure } from "@/lib/auth/login-lockout";
-import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
+import { startSession } from "@/lib/auth/session";
+import { setSessionCookie } from "@/lib/auth/session-cookie";
 import { verifyWalletChallenge } from "@/lib/auth/wallet-challenge";
-import { normalizeWalletPublicKey, resolveRoleByWallet } from "@/lib/auth/wallet-role";
+import { normalizeWalletPublicKey, resolveRolesByWallet } from "@/lib/auth/wallet-role";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
-import { upsertUserWallet } from "@/lib/storage/user-wallet-store";
+import { upsertUserWallet, WalletAlreadyBoundError } from "@/lib/storage/user-wallet-store";
 import { logValidationFailure, toPublicValidationDetails } from "@/lib/validation/errors";
 
 const loginSchema = z.object({
@@ -130,11 +131,15 @@ export async function POST(request: NextRequest) {
         startedAtMs,
         status: challengeResult.code === "invalid_signature" ? 401 : 400,
         body: { error: challengeErrorMessage(challengeResult.code) },
-        headers: rateLimitHeaders(rate),
+        headers: {
+          ...rateLimitHeaders(rate),
+          ...(failure?.justLocked ? { "Retry-After": String(failure.retryAfterSeconds) } : {}),
+        },
       });
     }
 
     const roles = resolveRolesByWallet(normalizedWallet);
+    const role = roles.includes("operator") ? "operator" : roles[0];
 
     if (!role) {
       const failure = await registerLoginFailure(userId, clientIp);
@@ -144,7 +149,10 @@ export async function POST(request: NextRequest) {
         startedAtMs,
         status: 401,
         body: { error: "Wallet is not authorized." },
-        headers: rateLimitHeaders(rate),
+        headers: {
+          ...rateLimitHeaders(rate),
+          ...(failure?.justLocked ? { "Retry-After": String(failure.retryAfterSeconds) } : {}),
+        },
       });
     }
 
@@ -156,7 +164,7 @@ export async function POST(request: NextRequest) {
 
     const session = startSession({
       email: `wallet:${normalizedWallet}`,
-      role: roles.includes("operator") ? "operator" : roles[0],
+      role,
       roles,
       userId,
       publicKey: normalizedWallet,
@@ -168,7 +176,7 @@ export async function POST(request: NextRequest) {
       status: 200,
       body: {
         ok: true,
-        role: roles.includes("operator") ? "operator" : roles[0],
+        role,
         roles,
         wallet: normalizedWallet,
       },

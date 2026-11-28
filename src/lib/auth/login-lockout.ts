@@ -111,6 +111,7 @@ export async function registerLoginFailure(email: string, ip: string) {
     attempts: current.attempts,
     lockedUntilMs: current.lockedUntilMs,
     justLocked: current.lockedUntilMs > now,
+    retryAfterSeconds: Math.max(0, Math.ceil((current.lockedUntilMs - now) / 1000)),
   };
 }
 
