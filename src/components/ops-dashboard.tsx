@@ -44,7 +44,7 @@ type IntegrityResponse = {
   timestamp: string;
 };
 
-type MetricsResponse = MetricsSnapshot;
+type MetricsResponse = Omit<MetricsSnapshot, "timestamp"> & { timestamp?: string | null };
 
 type AuditExportResponse = {
   scope: "all";
@@ -151,7 +151,6 @@ export function OpsDashboard({ initialMetrics }: { initialMetrics?: MetricsRespo
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [txLoading, setTxLoading] = useState(true);
-  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
   const [integrityLoading, setIntegrityLoading] = useState(true);
 
   useEffect(() => {
@@ -238,7 +237,7 @@ export function OpsDashboard({ initialMetrics }: { initialMetrics?: MetricsRespo
           const next = [
             ...current,
             {
-              label: formatShortTime(metricsPayload.timestamp),
+              label: metricsPayload.timestamp ? formatShortTime(metricsPayload.timestamp) : "Unavailable",
               requests: metricsPayload.totals.totalCount,
               errors: metricsPayload.totals.errorCount,
               errorRatePct: Number((metricsPayload.totals.errorRate * 100).toFixed(2)),
@@ -248,7 +247,6 @@ export function OpsDashboard({ initialMetrics }: { initialMetrics?: MetricsRespo
           return next.slice(-15);
         });
         setError(null);
-        setLastRefreshed(new Date().toISOString());
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Ops data fetch failed.");
@@ -350,15 +348,13 @@ export function OpsDashboard({ initialMetrics }: { initialMetrics?: MetricsRespo
             <div className="text-sm text-[hsl(var(--muted-foreground))]">
               {health?.timestamp ?? "-"}
             </div>
-            {lastRefreshed ? (
-              <div
-                className="text-xs text-[hsl(var(--muted-foreground))] opacity-70"
-                id="ops-last-refreshed"
-                data-testid="last-refreshed"
-              >
-                Last refreshed: {formatShortTime(lastRefreshed)}
-              </div>
-            ) : null}
+            <div
+              className="text-xs text-[hsl(var(--muted-foreground))] opacity-70"
+              id="ops-metrics-collected-at"
+              data-testid="metrics-collected-at"
+            >
+              Metrics collected: {metrics?.timestamp ? <time dateTime={metrics.timestamp}>{metrics.timestamp}</time> : "Unavailable"}
+            </div>
             {health?.dependencies ? (
               <div className="flex flex-wrap gap-2">
                 <DependencyBadge name="Storage" status={health.dependencies.storage} />
