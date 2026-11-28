@@ -152,7 +152,7 @@ export function checkProductionReadiness(
       getStellarHorizonUrl({
         ...env,
         STELLAR_HORIZON_URL: horizonUrl,
-      } as NodeJS.ProcessEnv)
+      })
     );
 
     if (inferredNetwork === "testnet") {

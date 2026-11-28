@@ -183,7 +183,9 @@ export function getSessionFromRequest(request: NextRequest) {
 export function startSession(input: {
   email: string;
   role: AuthRole;
+  roles?: AuthRole[];
   userId?: string;
+  publicKey?: string;
   expiresInSeconds?: number;
 }) {
   const userId = input.userId ?? randomUUID();
@@ -193,7 +195,9 @@ export function startSession(input: {
   const token = createSessionToken({
     email: input.email,
     role: input.role,
+    roles: input.roles,
     userId,
+    publicKey: input.publicKey,
     expiresInSeconds: ttlSeconds,
     generation: 0,
     sessionId,

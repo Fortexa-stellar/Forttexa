@@ -244,7 +244,7 @@ export async function upsertUserWallet(
     const store = await readStore();
     const now = new Date().toISOString();
     const current = store.wallets[userId] as UserWallet | undefined;
-    const currentIsActive = Boolean(current) && (!current.expiresAt || new Date(current.expiresAt).getTime() >= Date.now());
+    const currentIsActive = current !== undefined && (!current.expiresAt || new Date(current.expiresAt).getTime() >= Date.now());
     const owner = Object.values(store.wallets).find((wallet) => {
       if (!wallet || typeof wallet !== "object" || !("publicKey" in wallet)) return false;
       const candidate = wallet as UserWallet;

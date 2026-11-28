@@ -60,6 +60,7 @@ function makeEvaluation(
     riskScore: 10,
     riskFindings: [],
     requiresManualApproval: actualDecision === "REQUIRE_APPROVAL",
+    primaryRuleId: null,
     analyzerStatus: {
       blocklistStatus: "success",
       isDegraded: false,
