@@ -1,4 +1,5 @@
 import { evaluatePolicy, readAmountStroops } from "@/lib/policy/engine";
+import { isUserWalletRevoked } from "@/lib/storage/user-wallet-store";
 import { evaluateSecurity } from "@/lib/security/analyzer";
 import { checkBlocklist } from "@/lib/security/blocklist";
 import type {
@@ -28,6 +29,11 @@ function decideExplanation(result: DecisionResult): string {
 export function decisionAmountStroops(amountXLM: number): string | null {
   const stroops = readAmountStroops(amountXLM);
   return stroops === null ? null : stroops.toString();
+}
+
+/** A revoked wallet binding cannot authorize another decision. */
+export async function canPassDecisionGate(userId: string): Promise<boolean> {
+  return !(await isUserWalletRevoked(userId));
 }
 
 export async function evaluateDecision(

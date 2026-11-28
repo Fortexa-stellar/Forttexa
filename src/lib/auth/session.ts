@@ -10,6 +10,8 @@ export type AuthSession = {
   userId: string;
   email: string;
   role: AuthRole;
+  /** Every role the wallet holds; `role` is the primary one. Defaults to [role]. */
+  roles?: AuthRole[];
   /**
    * Session id. Minted once at login and carried forward by refresh, so every
    * token generation of one login shares it. Logout revokes by this id.
@@ -63,6 +65,7 @@ function sign(payloadPart: string) {
 export function createSessionToken(input: {
   email: string;
   role: AuthRole;
+  roles?: AuthRole[];
   userId?: string;
   expiresInSeconds?: number;
   publicKey?: string;
@@ -74,6 +77,7 @@ export function createSessionToken(input: {
     userId: input.userId ?? randomUUID(),
     email: input.email,
     role: input.role,
+    roles: input.roles ?? [input.role],
     sid: normalizeSessionId(input.sessionId) ?? randomUUID(),
     exp: now + (input.expiresInSeconds ?? DEFAULT_SESSION_TTL_SECONDS),
     publicKey: input.publicKey,
@@ -133,10 +137,6 @@ export function verifySessionToken(token: string, options?: VerifySessionTokenOp
       return null;
     }
 
-    if (parsed.roles !== undefined && (!Array.isArray(parsed.roles) || parsed.roles.some((role) => role !== "operator" && role !== "signer" && role !== "viewer"))) {
-      return null;
-    }
-
     const sid = normalizeSessionId(parsed.sid);
     if (!sid) {
       return null;
@@ -146,6 +146,7 @@ export function verifySessionToken(token: string, options?: VerifySessionTokenOp
       userId: parsed.userId,
       email: parsed.email,
       role: parsed.role,
+      ...(parsed.roles ? { roles: parsed.roles } : {}),
       exp: parsed.exp,
       gen: normalizeGeneration(parsed.gen),
       sid,
