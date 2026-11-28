@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { withMemoByteLimit } from "@/lib/stellar/memo";
 import { parseXlmNumberToStroops } from "@/lib/stellar/stroops";
 import {
   isValidPaymentAmountNumber,
@@ -78,7 +79,7 @@ export const stellarPublicKeySchema = z
 
 const paymentQuoteInputSchema = z.object({
   destination: stellarPublicKeySchema,
-  memo: z.string().max(28).optional(),
+  memo: withMemoByteLimit(z.string()).optional(),
   network: z.enum(["testnet"]).default("testnet"),
   asset: z.enum(["native"]).default("native"),
 });
@@ -118,7 +119,7 @@ export const stellarBuildPaymentRequestSchema = z.object({
       "amountXLM must be a positive decimal string with up to 7 decimals",
     ),
   asset: z.enum(["native"]).default("native"),
-  memo: z.string().max(28).optional(),
+  memo: withMemoByteLimit(z.string()).optional(),
   network: z.enum(["testnet"]).default("testnet"),
   /**
    * Optional epoch-millisecond timestamp the client attaches to this
@@ -135,7 +136,7 @@ const decisionReceiptSchema = z.object({
     message: PAYMENT_AMOUNT_ERROR,
   }),
   asset: z.enum(["native"]).default("native"),
-  memo: z.string().min(1).max(28),
+  memo: withMemoByteLimit(z.string().min(1)),
   network: z.enum(["testnet"]).default("testnet"),
   receiptHash: z
     .string()
