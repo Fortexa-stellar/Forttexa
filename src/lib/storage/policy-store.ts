@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { parseStoredPolicy } from "@/lib/policy/migrations";
 
 import { defaultPolicyConfig, readAmountStroops, validateNoDuplicateRules } from "@/lib/policy/engine";
 import { runWithDatabase } from "@/lib/storage/db";
@@ -471,6 +472,61 @@ export async function getPolicyHistory(limit = 20) {
     updatedBy: entry.updatedBy,
     policy: normalizePolicy(entry.policy),
   }));
+}
+
+export async function getPolicyVersionByNumber(targetVersion: number) {
+  const initialized = await ensureDbPolicyState();
+  if (initialized.available) {
+    const db = await runWithDatabase("getPolicyVersionByNumber", async (pool) => {
+      const result = await pool.query<{
+        version: number;
+        updated_at: string;
+        updated_by: string | null;
+        policy: PolicyConfig;
+      }>(
+        `
+          SELECT version, updated_at, updated_by, policy
+          FROM fortexa_policy_history
+          WHERE version = $1
+          LIMIT 1
+        `,
+        [targetVersion]
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        return null;
+      }
+
+      return {
+        version: row.version,
+        updatedAt: new Date(row.updated_at).toISOString(),
+        updatedBy: row.updated_by ?? undefined,
+        policy: normalizePolicy(row.policy),
+      };
+    });
+
+    if (db.available) {
+      if (!db.value) {
+        throw new Error(`Policy version ${targetVersion} not found.`);
+      }
+      return db.value;
+    }
+  }
+
+  const historyStore = await readHistoryStore();
+  const matched = (historyStore.entries ?? []).find((entry) => entry.version === targetVersion);
+
+  if (!matched) {
+    throw new Error(`Policy version ${targetVersion} not found.`);
+  }
+
+  return {
+    version: matched.version,
+    updatedAt: matched.updatedAt,
+    updatedBy: matched.updatedBy,
+    policy: normalizePolicy(matched.policy),
+  };
 }
 
 export async function rollbackPolicyVersion(version: number, updatedBy?: string) {
