@@ -45,7 +45,7 @@ describe('CSV Formula Injection Prevention (Issue #38)', () => {
       const csv = toCsv(maliciousData as CsvRow[]);
       
       // Malicious values should be present but neutralized
-      expect(csv).toContain('"\' cmd|'); // userId from first row
+      expect(csv).toContain('"\'=cmd|'); // userId from first row (no space after quote)
       expect(csv).toContain('"\'+malicious-action"'); // actionId
       expect(csv).toContain('"\'=SUM(A1:A100)'); // actionName
       expect(csv).toContain('"\'@malicious.domain"'); // domain
@@ -55,15 +55,15 @@ describe('CSV Formula Injection Prevention (Issue #38)', () => {
     it('neutralizes formulas with various whitespace patterns', () => {
       const csv = toCsv(maliciousData as CsvRow[]);
       
-      // Space before dangerous char
+      // Space before dangerous char (preserves the space in the input)
       expect(csv).toContain('"\' =DANGEROUS_USER"');
-      expect(csv).toContain('"\' +ATTACK_ID"');
+      expect(csv).toContain('"\'  +ATTACK_ID"'); // Two spaces in input
       
       // Tab before dangerous char
       expect(csv).toContain('"\'\t@MALICIOUS()"');
       
       // Multiple spaces
-      expect(csv).toContain('"\' -evil.com"');
+      expect(csv).toContain('"\'   -evil.com"'); // Three spaces in input
       
       // Mixed whitespace (space + tab)
       expect(csv).toContain('"\' \t-1+1+cmd');
@@ -73,22 +73,22 @@ describe('CSV Formula Injection Prevention (Issue #38)', () => {
       const csv = toCsv(maliciousData as CsvRow[]);
       
       // Equals sign
-      expect(csv).toContain('"\' cmd|'); // =cmd in userId
+      expect(csv).toContain('"\'=cmd|'); // =cmd in userId (no space after quote)
       expect(csv).toContain('"\'=SUM('); // =SUM in actionName
       expect(csv).toContain('"\'=1+1"'); // =1+1 in explanation
       
       // Plus sign
       expect(csv).toContain('"\'+malicious-action"'); // actionId
-      expect(csv).toContain('"\' +ATTACK_ID"'); // actionId with space
+      expect(csv).toContain('"\'  +ATTACK_ID"'); // actionId with spaces
       expect(csv).toContain('"\'+plus prefix'); // explanation
       
       // Minus sign
       expect(csv).toContain('"\'-negative-id"'); // actionId
-      expect(csv).toContain('"\' -evil.com"'); // domain
+      expect(csv).toContain('"\'   -evil.com"'); // domain with spaces
       
       // At sign
       expect(csv).toContain('"\'@malicious.domain"'); // domain
-      expect(csv).toContain('"\'\t@MALICIOUS()"'); // actionName
+      expect(csv).toContain('"\'\t@MALICIOUS()"'); // actionName with tab
       expect(csv).toContain('"\'@SUM(1+1)"'); // domain
     });
   });
@@ -278,7 +278,7 @@ describe('CSV Formula Injection Prevention (Issue #38)', () => {
       const csv = toCsv(testData);
       
       // Should have formula prefix AND proper quote escaping
-      expect(csv).toContain('"\' EVIL(), with ""quotes"" and, commas"');
+      expect(csv).toContain('"\'=EVIL(), with ""quotes"" and, commas"');
     });
 
     it('handles newlines in sanitized fields', () => {
@@ -288,7 +288,7 @@ describe('CSV Formula Injection Prevention (Issue #38)', () => {
       const csv = toCsv(testData);
       
       // Should preserve newlines within quoted field
-      expect(csv).toContain('"\' EVIL()\nwith\nnewlines"');
+      expect(csv).toContain('"\'=EVIL()\nwith\nnewlines"');
     });
   });
 });

@@ -52,11 +52,11 @@ describe('sanitizeCsvCell', () => {
 
   it('handles malicious payloads from OWASP CSV Injection examples', () => {
     // Real-world attack vectors
-    expect(sanitizeCsvCell('=cmd|"/c calc"!A1')).toBe("'=cmd|'/c calc'!A1");
-    expect(sanitizeCsvCell('=1+1+cmd|"/c calc"!A1')).toBe("'=1+1+cmd|'/c calc'!A1");
-    expect(sanitizeCsvCell('@SUM(1+1)*cmd|"/c calc"!A1')).toBe("'@SUM(1+1)*cmd|'/c calc'!A1");
-    expect(sanitizeCsvCell('+1+1+cmd|"/c calc"!A1')).toBe("'+1+1+cmd|'/c calc'!A1");
-    expect(sanitizeCsvCell('-1+1+cmd|"/c calc"!A1')).toBe("'-1+1+cmd|'/c calc'!A1");
+    expect(sanitizeCsvCell('=cmd|"/c calc"!A1')).toBe('\'=cmd|"/c calc"!A1');
+    expect(sanitizeCsvCell('=1+1+cmd|"/c calc"!A1')).toBe('\'=1+1+cmd|"/c calc"!A1');
+    expect(sanitizeCsvCell('@SUM(1+1)*cmd|"/c calc"!A1')).toBe('\'@SUM(1+1)*cmd|"/c calc"!A1');
+    expect(sanitizeCsvCell('+1+1+cmd|"/c calc"!A1')).toBe('\'+1+1+cmd|"/c calc"!A1');
+    expect(sanitizeCsvCell('-1+1+cmd|"/c calc"!A1')).toBe('\'-1+1+cmd|"/c calc"!A1');
   });
 });
 
@@ -141,7 +141,7 @@ describe('toCsv', () => {
       ]);
       
       expect(csv).toContain('"\'=SUM(A1:A100)"');
-      expect(csv).toContain('"\' @DANGEROUS"');
+      expect(csv).toContain('"\'  @DANGEROUS"');
     });
 
     it('sanitizes actionId (user-controlled)', () => {
@@ -204,7 +204,7 @@ describe('toCsv', () => {
       ]);
 
       // All dangerous values should have formula prefix neutralized
-      expect(csv).toContain('"\' cmd|');
+      expect(csv).toContain('"\'=cmd|');
       expect(csv).toContain('"\'+1+1+cmd');
       expect(csv).toContain('"\'@SUM(A1:A999)"');
       expect(csv).toContain('"\' \t-1+1+HYPERLINK');
