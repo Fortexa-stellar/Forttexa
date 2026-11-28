@@ -6,6 +6,8 @@ export default defineConfig({
     environment: "node",
     include: [
       "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "scripts/**/*.test.ts",
       "scripts/**/*.test.ts",
       "src/components/policy-editor.test.tsx",
       "src/components/decision-console.test.tsx",
