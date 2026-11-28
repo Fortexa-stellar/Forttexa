@@ -43,7 +43,8 @@ export async function POST(request: NextRequest) {
 
   // Read the body before consuming the rate budget so the gate can check the
   // requested destination against the blocklist in the same atomic step.
-  const rawBody = (await request.json().catch(() => ({}))) as unknown;
+  const bodyResult = await readJsonBody(request);
+  const rawBody: unknown = bodyResult.ok ? bodyResult.data : {};
 
   const rawDestination =
     typeof rawBody === "object" && rawBody !== null
@@ -95,6 +96,17 @@ export async function POST(request: NextRequest) {
     const userId = auth.session.userId;
 
     // The body was already read above for the gate; a request body can only be read once.
+    if (!bodyResult.ok) {
+      logWarn("Decision route payload too large", { ...context, userId });
+      return respond(request, {
+        route: "/api/decision",
+        startedAtMs,
+        status: 413,
+        body: { error: bodyResult.error },
+        headers: rateLimitHeaders(rate),
+      });
+    }
+
     requestBody = rawBody;
     const parsedBody = decisionRequestSchema.safeParse(rawBody);
 
