@@ -1,6 +1,5 @@
 import path from "node:path";
 
-import { findUnsafeSessionCookieOverrides } from "@/lib/auth/session-cookie";
 import {
   STELLAR_PUBLIC_NETWORK_PASSPHRASE,
   STELLAR_TESTNET_NETWORK_PASSPHRASE,
@@ -283,10 +282,6 @@ export function checkProductionReadiness(
         "Run the database migrations to bring the schema up to date."
       );
     }
-  }
-
-  for (const cookieIssue of findUnsafeSessionCookieOverrides(env)) {
-    addIssue(issues, cookieIssue.setting, cookieIssue.message, cookieIssue.remediation);
   }
 
   return {

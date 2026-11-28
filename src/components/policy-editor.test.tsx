@@ -165,6 +165,15 @@ function findByTestId(node: unknown, testId: string): Tree | undefined {
   return undefined;
 }
 
+function countByRole(node: unknown, role: string): number {
+  if (Array.isArray(node)) return node.reduce((count, child) => count + countByRole(child, role), 0);
+  if (node && typeof node === "object" && "props" in (node as Tree)) {
+    const tree = node as Tree;
+    return Number(tree.props?.role === role) + countByRole(tree.props?.children, role);
+  }
+  return 0;
+}
+
 function click(tree: Tree | undefined) {
   expect(tree).toBeDefined();
   const onClick = tree!.props!.onClick as () => void;
@@ -304,7 +313,54 @@ describe("PolicyEditor activation gate", () => {
     await flush();
 
     expect(getStatus()).toBe("Policy activated successfully.");
+    const tree = renderEditor();
+    const statusRegion = findByTestId(tree, "policy-status");
+    expect(statusRegion?.props?.role).toBe("status");
+    expect(treeText(statusRegion)).toContain("Policy activated successfully.");
+    expect(countByRole(tree, "status")).toBe(1);
     expect(policyPostCalls()).toHaveLength(1);
     expect(policyPostCalls()[0].init.body).toContain('"expectedVersion":1');
+  });
+
+  it("announces save conflicts and reload outcomes in the existing status region", async () => {
+    setupFetch({
+      validate: { ok: true, status: 200, body: { valid: true, data: POLICY } },
+      policyPost: {
+        ok: false,
+        status: 409,
+        body: {
+          error: "Policy was changed by another operator.",
+          expectedVersion: 1,
+          currentVersion: 2,
+        },
+      },
+    });
+
+    renderEditor();
+    mockEffectCb!();
+    await flush();
+
+    click(findByTestId(renderEditor(), "validate-draft-button"));
+    await flush();
+    click(findByTestId(renderEditor(), "activate-policy-button"));
+    await flush();
+
+    expect(getStatus()).toBe("Conflict: server is at v2, your edit was based on v1.");
+    let statusRegion = findByTestId(renderEditor(), "policy-status");
+    expect(statusRegion?.props?.role).toBe("status");
+    expect(treeText(statusRegion)).toContain("Conflict: server is at v2, your edit was based on v1.");
+    expect(treeText(renderEditor())).toContain("Save conflict — another operator edited this policy");
+
+    click(findByTestId(renderEditor(), "reload-latest-policy-button"));
+    await flush();
+
+    expect(getStatus()).toBe(
+      "Reloaded latest policy from server. Local edits discarded — please re-enter your changes.",
+    );
+    statusRegion = findByTestId(renderEditor(), "policy-status");
+    expect(statusRegion?.props?.role).toBe("status");
+    expect(treeText(statusRegion)).toContain(
+      "Reloaded latest policy from server. Local edits discarded — please re-enter your changes.",
+    );
   });
 });

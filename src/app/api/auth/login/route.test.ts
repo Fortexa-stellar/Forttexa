@@ -276,6 +276,7 @@ describe("/api/auth/login challenge-signature flow", () => {
       const payload = (await response.json()) as { error: string; retryAfterSeconds?: number };
       expect(payload.error).toContain("temporarily locked");
       expect(typeof payload.retryAfterSeconds).toBe("number");
+      expect(response.headers.get("Retry-After")).toBe(String(payload.retryAfterSeconds));
     });
 
     it("allows login again after the lock expires", async () => {

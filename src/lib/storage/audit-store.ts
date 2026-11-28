@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { GENESIS_HASH, computeEntryHash } from "@/lib/audit/hash-chain";
+import type { AuditPagination } from "@/lib/audit/pagination";
 import { runWithDatabase, runWithDatabaseStrict } from "@/lib/storage/db";
 import { getFortexaStoreDir, getFortexaStorePath, resolveContainedStorePath } from "@/lib/storage/paths";
 import type { ContainedStorePath } from "@/lib/storage/paths";
@@ -203,17 +204,24 @@ export async function getAuditEntryById(userId: string, entryId: string) {
   return entries.find((entry) => entry.id === entryId);
 }
 
-export async function listAuditEntries(userId: string, filter?: AuditFilter) {
+export async function listAuditEntries(
+  userId: string,
+  filter?: AuditFilter,
+  pagination?: AuditPagination,
+) {
   const db = await runWithDatabase("listAuditEntries", async (pool) => {
-    const result = await pool.query<{ payload: AuditEntry }>(
-      `
+    const query = `
         SELECT payload
         FROM fortexa_audit_entries
         WHERE user_id = $1
         ORDER BY timestamp DESC, chain_sequence DESC
-      `,
-      [userId],
-    );
+      `;
+    const result = pagination && filter === undefined
+      ? await pool.query<{ payload: AuditEntry }>(
+          `${query} LIMIT $2 OFFSET $3`,
+          [userId, pagination.limit, pagination.offset],
+        )
+      : await pool.query<{ payload: AuditEntry }>(query, [userId]);
 
     return applyFilter(
       result.rows.map((row) => row.payload),
@@ -227,12 +235,15 @@ export async function listAuditEntries(userId: string, filter?: AuditFilter) {
 
   const store = await readStore();
   const entries = store.auditByUser[userId] ?? [];
-  return applyFilter(
+  const filtered = applyFilter(
     [...entries].sort((a, b) =>
       a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0,
     ),
     filter,
   );
+  return pagination
+    ? filtered.slice(pagination.offset, pagination.offset + pagination.limit)
+    : filtered;
 }
 
 export async function listAllAuditEntriesByUser(filter?: AuditFilter) {

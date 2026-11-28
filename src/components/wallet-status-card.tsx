@@ -33,6 +33,108 @@ async function readConnectedAccount(): Promise<string | null> {
   }
 }
 
+export type CopyState = "idle" | "copied" | "failed";
+
+type ClipboardLike = Pick<Clipboard, "writeText">;
+
+/**
+ * Write text to the clipboard and report the outcome. Resolves to "copied" only
+ * after the clipboard write itself resolves; a missing Clipboard API, a denied
+ * permission or any other rejection resolves to "failed".
+ */
+export async function copyTextToClipboard(
+  text: string,
+  clipboard: ClipboardLike | undefined = typeof navigator === "undefined" ? undefined : navigator.clipboard,
+): Promise<Exclude<CopyState, "idle">> {
+  if (!clipboard || typeof clipboard.writeText !== "function") return "failed";
+  try {
+    await clipboard.writeText(text);
+    return "copied";
+  } catch {
+    return "failed";
+  }
+}
+
+export const COPY_FAILED_MESSAGE =
+  "Couldn't copy to the clipboard. Select the full address below and copy it manually.";
+
+export function PublicKeyField({
+  publicKey,
+  copyState,
+  onCopy,
+}: {
+  publicKey: string;
+  copyState: CopyState;
+  onCopy?: () => void;
+}) {
+  const copied = copyState === "copied";
+  const failed = copyState === "failed";
+
+  return (
+    <div className="rounded-xl bg-[hsl(var(--muted)/0.4)] p-4" data-testid="public-key-field" data-copy-state={copyState}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Public key</p>
+        <button
+          type="button"
+          onClick={onCopy}
+          data-action="copy-public-key"
+          aria-label={
+            copied
+              ? "Wallet public key copied"
+              : failed
+                ? "Copy failed. Try copying the wallet public key again"
+                : "Copy wallet public key to clipboard"
+          }
+          aria-describedby={failed ? "wallet-public-key-copy-error" : undefined}
+          className="inline-flex h-6 items-center gap-1 rounded-md border border-transparent px-2 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))] transition-colors hover:border-[hsl(var(--border))] hover:bg-[hsl(var(--background))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--background))]"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3 w-3" aria-hidden="true" />
+              Copied
+            </>
+          ) : failed ? (
+            <>
+              <Copy className="h-3 w-3" aria-hidden="true" />
+              Retry
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" aria-hidden="true" />
+              Copy
+            </>
+          )}
+        </button>
+      </div>
+      {failed ? (
+        <>
+          <p
+            id="wallet-public-key-copy-error"
+            role="alert"
+            className="mt-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-xs text-rose-200"
+          >
+            {COPY_FAILED_MESSAGE}
+          </p>
+          <p
+            data-testid="public-key-full"
+            aria-label="Full wallet public key"
+            className="mt-2 select-all break-all font-mono text-xs"
+          >
+            {publicKey}
+          </p>
+        </>
+      ) : (
+        <p className="mt-1 font-mono text-xs" title={publicKey}>
+          {truncateMiddle(publicKey, 14, 14)}
+        </p>
+      )}
+      <span className="sr-only" aria-live="polite">
+        {copied ? "Wallet public key copied to clipboard." : ""}
+      </span>
+    </div>
+  );
+}
+
 const STATUS_MESSAGES: Record<WalletCardState["status"], string> = {
   signed_out: "Signed out. Sign in with Freighter to bind your session wallet.",
   unbound: "No wallet is bound to this session. Sign in with Freighter to enable wallet actions.",
@@ -104,7 +206,7 @@ export function WalletStatusCard({
   const [revoking, setRevoking] = useState(false);
   const [data, setData] = useState<WalletData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<CopyState>("idle");
   const copyResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -182,12 +284,17 @@ export function WalletStatusCard({
 
   async function copyPublicKey() {
     if (!data?.publicKey) return;
-    await navigator.clipboard.writeText(data.publicKey);
-    setCopied(true);
     if (copyResetTimeout.current) {
       clearTimeout(copyResetTimeout.current);
+      copyResetTimeout.current = null;
     }
-    copyResetTimeout.current = setTimeout(() => setCopied(false), 2000);
+    const result = await copyTextToClipboard(data.publicKey);
+    setCopyState(result);
+    // Success feedback is transient; a failure stays visible so the operator can
+    // copy the full address manually.
+    if (result === "copied") {
+      copyResetTimeout.current = setTimeout(() => setCopyState("idle"), 2000);
+    }
   }
   if (compact) {
     return (
@@ -238,32 +345,7 @@ export function WalletStatusCard({
 
       {data?.publicKey && walletState.status !== "signed_out" ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl bg-[hsl(var(--muted)/0.4)] p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Public key</p>
-              <button
-                type="button"
-                onClick={copyPublicKey}
-                aria-label={
-                  copied ? "Wallet public key copied" : "Copy wallet public key to clipboard"
-                }
-                className="inline-flex h-6 items-center gap-1 rounded-md border border-transparent px-2 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))] transition-colors hover:border-[hsl(var(--border))] hover:bg-[hsl(var(--background))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--background))]"
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-3 w-3" aria-hidden="true" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3 w-3" aria-hidden="true" />
-                    Copy
-                  </>
-                )}
-              </button>
-            </div>
-            <p className="mt-1 font-mono text-xs">{truncateMiddle(data.publicKey, 14, 14)}</p>
-          </div>
+          <PublicKeyField publicKey={data.publicKey} copyState={copyState} onCopy={() => void copyPublicKey()} />
           <div className="rounded-xl bg-[hsl(var(--muted)/0.4)] p-4">
             <p className="text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Balance</p>
             <p className="mt-1 text-xl font-semibold">{data.balance ?? "0"} <span className="text-sm font-normal">XLM</span></p>

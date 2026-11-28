@@ -97,12 +97,6 @@ If both allowlists are empty, current behavior falls back to `operator` role for
 
 Session cookie: `fortexa_session` (HMAC-signed).
 
-Cookie attributes:
-
-- Production (`NODE_ENV=production`): `Secure`, `HttpOnly`, and an explicit `SameSite` policy (default `lax`).
-- Local development: `HttpOnly` + `SameSite=lax`, with `Secure` off so `http://localhost` can store the cookie.
-- Optional overrides: `FORTEXA_SESSION_COOKIE_SECURE`, `FORTEXA_SESSION_COOKIE_SAMESITE`. An unsafe production override (for example `FORTEXA_SESSION_COOKIE_SECURE=false`) fails startup.
-
 Challenge TTL: `FORTEXA_AUTH_CHALLENGE_TTL_SECONDS` (default `300`).
 
 ### 4.2 Role Permissions

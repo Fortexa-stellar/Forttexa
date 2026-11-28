@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 
-import { isLoginLocked, readClientIp } from "@/lib/auth/login-lockout";
 import { requireActiveAuth } from "@/lib/auth/require-auth";
-import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
-import { setSessionCookie } from "@/lib/auth/session-cookie";
+import { createSessionToken } from "@/lib/auth/session";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logInfo, logWarn } from "@/lib/observability/logger";
-import { applySecurityHeaders } from "@/lib/security/headers";
 import { getUserWallet } from "@/lib/storage/user-wallet-store";
+import { isLoginLocked, readClientIp } from "@/lib/auth/login-lockout";
+import { clearSessionCookie, setSessionCookie } from "@/lib/auth/session-cookie";
+import { applySecurityHeaders } from "@/lib/security/headers";
 
 export async function POST(request: NextRequest) {
   const startedAtMs = Date.now();
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   const sessionWallet = auth.session.publicKey;
 
   if (sessionWallet) {
-    const lockState = await isLoginLocked(sessionWallet, clientIp);
+    const lockState = await isLoginLocked(`wallet:${sessionWallet}`, clientIp);
     if (lockState.locked) {
       logWarn("Auth refresh blocked by lockout", { ...context, wallet: sessionWallet, ip: clientIp });
       return jsonWithRequestContext(request, {
@@ -32,33 +32,30 @@ export async function POST(request: NextRequest) {
         startedAtMs,
         status: 401,
         body: { error: "Account is temporarily locked. Refresh token invalid." },
+        headers: { "Retry-After": String(lockState.retryAfterSeconds) },
+        noStore: true,
       });
     }
   }
 
-  if (sessionWallet) {
-    const assignedWallet = await getUserWallet(auth.session.userId);
-    if (!assignedWallet || ("expired" in assignedWallet && assignedWallet.expired)) {
-      logWarn("Auth refresh wallet revoked or expired", { ...context, userId: auth.session.userId });
-      const response = jsonWithRequestContext(request, {
-        route: "/api/auth/refresh",
-        startedAtMs,
-        status: 401,
-        body: { error: "Session wallet mapping has expired or been revoked." },
-      });
-      response.cookies.delete(AUTH_COOKIE_KEY);
-      return response;
-    }
+  const assignedWallet = await getUserWallet(auth.session.userId);
+  if (!assignedWallet || ("expired" in assignedWallet && assignedWallet.expired)) {
+    logWarn("Auth refresh wallet revoked or expired", { ...context, userId: auth.session.userId });
+    const response = jsonWithRequestContext(request, {
+      route: "/api/auth/refresh",
+      startedAtMs,
+      status: 401,
+      body: { error: "Session wallet mapping has expired or been revoked." },
+    });
+    clearSessionCookie(response);
+    return response;
   }
 
   const token = createSessionToken({
     email: auth.session.email,
     role: auth.session.role,
-    roles: auth.session.roles,
     userId: auth.session.userId,
     publicKey: sessionWallet,
-    sessionId: auth.session.sid,
-    generation: auth.session.gen,
   });
 
   const response = jsonWithRequestContext(request, {

@@ -10,8 +10,6 @@ export type AuthSession = {
   userId: string;
   email: string;
   role: AuthRole;
-  /** Optional multi-role grant carried in the signed cookie payload. */
-  roles?: AuthRole[];
   /**
    * Session id. Minted once at login and carried forward by refresh, so every
    * token generation of one login shares it. Logout revokes by this id.
@@ -62,17 +60,9 @@ function sign(payloadPart: string) {
   return createHmac("sha256", getAuthSecret()).update(payloadPart).digest("base64url");
 }
 
-function normalizeRoles(role: AuthRole, roles: AuthRole[] | undefined): AuthRole[] {
-  if (!roles || roles.length === 0) {
-    return [role];
-  }
-  return roles;
-}
-
 export function createSessionToken(input: {
   email: string;
   role: AuthRole;
-  roles?: AuthRole[];
   userId?: string;
   expiresInSeconds?: number;
   publicKey?: string;
@@ -84,7 +74,6 @@ export function createSessionToken(input: {
     userId: input.userId ?? randomUUID(),
     email: input.email,
     role: input.role,
-    roles: normalizeRoles(input.role, input.roles),
     sid: normalizeSessionId(input.sessionId) ?? randomUUID(),
     exp: now + (input.expiresInSeconds ?? DEFAULT_SESSION_TTL_SECONDS),
     publicKey: input.publicKey,
@@ -140,12 +129,11 @@ export function verifySessionToken(token: string, options?: VerifySessionTokenOp
       return null;
     }
 
-    const parsedRoles = (parsed as { roles?: unknown }).roles;
-    if (
-      parsedRoles !== undefined &&
-      (!Array.isArray(parsedRoles) ||
-        parsedRoles.some((role) => role !== "operator" && role !== "signer" && role !== "viewer"))
-    ) {
+    if (parsed.roles !== undefined && (!Array.isArray(parsed.roles) || parsed.roles.some((role) => role !== "operator" && role !== "signer" && role !== "viewer"))) {
+      return null;
+    }
+
+    if (parsed.roles !== undefined && (!Array.isArray(parsed.roles) || parsed.roles.some((role) => role !== "operator" && role !== "signer" && role !== "viewer"))) {
       return null;
     }
 
@@ -158,7 +146,6 @@ export function verifySessionToken(token: string, options?: VerifySessionTokenOp
       userId: parsed.userId,
       email: parsed.email,
       role: parsed.role,
-      roles: normalizeRoles(parsed.role, parsedRoles as AuthRole[] | undefined),
       exp: parsed.exp,
       gen: normalizeGeneration(parsed.gen),
       sid,
@@ -197,7 +184,6 @@ export function startSession(input: {
   role: AuthRole;
   userId?: string;
   expiresInSeconds?: number;
-  publicKey?: string;
 }) {
   const userId = input.userId ?? randomUUID();
   const ttlSeconds = input.expiresInSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
@@ -210,7 +196,6 @@ export function startSession(input: {
     expiresInSeconds: ttlSeconds,
     generation: 0,
     sessionId,
-    publicKey: input.publicKey,
   });
 
   registerSession({
@@ -238,9 +223,7 @@ export function rotateSessionToken(session: AuthSession) {
   const token = createSessionToken({
     email: session.email,
     role: session.role,
-    roles: session.roles,
     userId: session.userId,
-    publicKey: session.publicKey,
     generation: rotated.generation,
     sessionId: session.sid,
   });

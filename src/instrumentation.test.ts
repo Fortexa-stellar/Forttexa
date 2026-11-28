@@ -1,23 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { ensureDatabaseReadyMock, assertSafeSessionCookieConfigMock } = vi.hoisted(() => ({
+const { ensureDatabaseReadyMock } = vi.hoisted(() => ({
   ensureDatabaseReadyMock: vi.fn(),
-  assertSafeSessionCookieConfigMock: vi.fn(),
 }));
 
 vi.mock("@/lib/storage/db", () => ({
   ensureDatabaseReady: ensureDatabaseReadyMock,
 }));
-
-vi.mock("@/lib/auth/session-cookie", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/auth/session-cookie")>(
-    "@/lib/auth/session-cookie"
-  );
-  return {
-    ...actual,
-    assertSafeSessionCookieConfig: assertSafeSessionCookieConfigMock,
-  };
-});
 
 import { register } from "@/instrumentation";
 
@@ -29,17 +18,19 @@ describe("Next.js startup instrumentation", () => {
   it("waits for database migrations in the Node runtime", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
     await register();
-    expect(assertSafeSessionCookieConfigMock).toHaveBeenCalledOnce();
     expect(ensureDatabaseReadyMock).toHaveBeenCalledOnce();
   });
 
-  it("fails startup when session cookie policy is unsafe", async () => {
-    process.env.NEXT_RUNTIME = "nodejs";
-    assertSafeSessionCookieConfigMock.mockImplementationOnce(() => {
-      throw new Error("Unsafe session cookie configuration for production.");
-    });
-    await expect(register()).rejects.toThrow(/Unsafe session cookie configuration/);
-    expect(ensureDatabaseReadyMock).not.toHaveBeenCalled();
+  it("rejects an insecure cookie override before opening storage", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    vi.stubEnv("FORTEXA_SESSION_COOKIE_SECURE", "false");
+    try {
+      await expect(register()).rejects.toThrow("Production session cookies must use Secure");
+      expect(ensureDatabaseReadyMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("fails startup when database migrations fail", async () => {
@@ -51,7 +42,6 @@ describe("Next.js startup instrumentation", () => {
   it("does not connect to storage in a non-Node runtime", async () => {
     process.env.NEXT_RUNTIME = "edge";
     await register();
-    expect(assertSafeSessionCookieConfigMock).not.toHaveBeenCalled();
     expect(ensureDatabaseReadyMock).not.toHaveBeenCalled();
   });
 });
