@@ -1,0 +1,67 @@
+[
+  {
+    "userId": "GCTEST123ABC",
+    "id": "audit-001",
+    "timestamp": "2026-11-24T12:00:00Z",
+    "decision": "ALLOW",
+    "actionId": "action-safe-123",
+    "actionName": "Normal Payment to Vendor",
+    "domain": "trusted-vendor.com",
+    "amountXLM": 100.5,
+    "explanation": "Routine payment within policy limits",
+    "entryHash": "abc123def456",
+    "previousHash": ""
+  },
+  {
+    "userId": "GCUSER789XYZ",
+    "id": "audit-002",
+    "timestamp": "2026-11-24T13:00:00Z",
+    "decision": "ALLOW",
+    "actionId": "action-safe-456",
+    "actionName": "Invoice payment #12345",
+    "domain": "example.com",
+    "amountXLM": 50.25,
+    "explanation": "Payment for services rendered, approved by finance",
+    "entryHash": "def456ghi789",
+    "previousHash": "abc123def456"
+  },
+  {
+    "userId": "GCOPERATOR999",
+    "id": "audit-003",
+    "timestamp": "2026-11-24T14:00:00Z",
+    "decision": "REQUIRE_APPROVAL",
+    "actionId": "action-safe-789",
+    "actionName": "Large payment: annual contract",
+    "domain": "bigvendor.example",
+    "amountXLM": 1000.0,
+    "explanation": "Annual contract renewal, requires operator approval due to amount",
+    "entryHash": "ghi789jkl012",
+    "previousHash": "def456ghi789"
+  },
+  {
+    "userId": "GCVIEWER111",
+    "id": "audit-004",
+    "timestamp": "2026-11-24T15:00:00Z",
+    "decision": "BLOCK",
+    "actionId": "action-safe-012",
+    "actionName": "Payment to unknown recipient",
+    "domain": "unknown-domain.xyz",
+    "amountXLM": 5000.0,
+    "explanation": "Blocked: recipient not in whitelist, amount exceeds policy threshold",
+    "entryHash": "jkl012mno345",
+    "previousHash": "ghi789jkl012"
+  },
+  {
+    "userId": "GCTEST555",
+    "id": "audit-005",
+    "timestamp": "2026-11-24T16:00:00Z",
+    "decision": "ALLOW",
+    "actionId": "action-safe-345",
+    "actionName": "Subscription renewal",
+    "domain": "saas-provider.com",
+    "amountXLM": 29.99,
+    "explanation": "Monthly subscription payment, pre-approved recurring transaction",
+    "entryHash": "mno345pqr678",
+    "previousHash": "jkl012mno345"
+  }
+]
