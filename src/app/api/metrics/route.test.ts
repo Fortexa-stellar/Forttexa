@@ -3,10 +3,12 @@ import { NextRequest } from "next/server";
 
 import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
 import {
+  recordApiMetric,
   recordDecisionOutcome,
   recordRateLimitRejection,
   recordStellarSubmitResult,
   resetMetrics,
+  type MetricsSnapshot,
 } from "@/lib/observability/metrics";
 import { GET } from "@/app/api/metrics/route";
 

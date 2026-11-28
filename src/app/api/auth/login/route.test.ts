@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AUTH_COOKIE_KEY } from "@/lib/auth/session";
 import { hashSep53Message, resetWalletChallengeStore } from "@/lib/auth/wallet-challenge";
+import { buildSecurityHeaders } from "@/lib/security/headers";
 import {
   isLoginLocked,
   registerLoginFailure,
@@ -120,7 +121,7 @@ describe("/api/auth/login challenge-signature flow", () => {
     const challenge = await issueChallenge(AUTHORIZED_PUBLIC_KEY);
     const signature = signSep53Message(AUTHORIZED_SECRET, challenge.message);
 
-    vi.advanceTimesBy(61_000);
+    vi.advanceTimersByTime(61_000);
 
     const response = await login(
       loginRequest({

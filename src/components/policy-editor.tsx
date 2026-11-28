@@ -30,6 +30,8 @@ type PolicyResponse = {
   version?: number;
   error?: string;
   code?: string;
+  /** Validation details the API returns when it rejects the document. */
+  details?: { fieldErrors?: Record<string, string[]> };
 };
 
 type PolicyConflictResponse = {
@@ -261,7 +263,7 @@ export function PolicyEditor({
         if (conflictBody.code === "NETWORK_MISMATCH") {
           setServerNetworkMatches(false);
           setStatus(conflictBody.error ?? "Server network changed. Saving is disabled.");
-          return;
+          return false;
         }
         const expectedVersion =
           conflictBody.expectedVersion ?? version ?? -1;

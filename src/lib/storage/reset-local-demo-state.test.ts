@@ -183,6 +183,39 @@ describe("runReset script logic", () => {
     expect(fs.unlink).not.toHaveBeenCalled();
   });
 
+  it("refuses on the Stellar public network before touching any state", async () => {
+    const result = await runReset({
+      allowLocalReset: true,
+      yesFlag: true,
+      databaseUrl: "postgres://localhost:5432/fortexa",
+      networkPassphrase: "Public Global Stellar Network ; September 2015",
+      log: mockLog,
+      errorLog: mockError,
+      storeDir: "/mock/store",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.refusalReason).toContain("production network");
+    expect(errorOutput.join("\n")).toContain("production network detected");
+    expect(fs.unlink).not.toHaveBeenCalled();
+  });
+
+  it("refuses on an unrecognised network passphrase", async () => {
+    const result = await runReset({
+      allowLocalReset: true,
+      yesFlag: true,
+      databaseUrl: "postgres://localhost:5432/fortexa",
+      networkPassphrase: "Standalone Network ; February 2017",
+      log: mockLog,
+      errorLog: mockError,
+      storeDir: "/mock/store",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.refusalReason).toContain("testnet fixture");
+    expect(fs.unlink).not.toHaveBeenCalled();
+  });
+
   it("performs full reset when all guardrails are met", async () => {
     const result = await runReset({
       allowLocalReset: true,
