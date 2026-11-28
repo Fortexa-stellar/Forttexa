@@ -128,6 +128,8 @@ export interface PaymentQuote {
   memo: string;
   network: StellarNetworkId;
   receiptHash?: string;
+  /** ISO-8601 instant after which the quote can no longer authorize a spend. */
+  expiresAt?: string;
 }
 
 export interface AuditEntry {

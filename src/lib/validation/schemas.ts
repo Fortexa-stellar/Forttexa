@@ -101,11 +101,10 @@ export const decisionRequestSchema = z
       Boolean(
         data.scenarioId ||
         data.action ||
-        data.paymentQuote ||
         data.paymentQuoteInput,
       ),
     {
-      message: "Either scenarioId, action, or paymentQuote must be provided.",
+      message: "Either scenarioId, action, or paymentQuoteInput must be provided.",
       path: ["scenarioId"],
     },
   );
@@ -155,22 +154,33 @@ const decisionReceiptSchema = z.strictObject({
     .string()
     .regex(/^[a-f0-9]{64}$/i)
     .optional(),
+  /**
+   * Fields the build response's `decisionReceipt` also carries, so a client
+   * that echoes the receipt back unchanged is not rejected as having unknown
+   * fields. The server never trusts them: the stored quote is the authority.
+   */
+  expiresAt: z.string().min(1).max(64).optional(),
+  amountStroops: z.string().regex(/^\d+$/).max(32).optional(),
 });
 
 /**
  * Strict: unrecognized fields (including inside `decisionReceipt`) are
- * rejected instead of silently dropped. `decisionId`, `quoteExpiresAt` and
- * `buildAuthorization` are the build-response fields the README documents
- * alongside `signedXdr`; they are accepted (bounded strings) so documented
- * payloads keep working.
+ * rejected instead of silently dropped.
+ *
+ * `decisionId`, `quoteExpiresAt` and `buildAuthorization` are the build
+ * response fields the README documents alongside `signedXdr`, and they are
+ * what the console submits. The server uses them to reload the approved
+ * decision and validate the signed transaction against the quote it stored, so
+ * they are required. `decisionReceipt` is optional: when present it is only
+ * cross-checked against that stored quote, never trusted on its own.
  */
 export const stellarSubmitSignedRequestSchema = z.strictObject({
   signedXdr: z.string().min(20).max(120000),
-  decisionReceipt: decisionReceiptSchema,
+  decisionId: z.string().min(1).max(128),
+  quoteExpiresAt: z.string().min(1).max(64),
+  buildAuthorization: z.string().min(1).max(2048),
+  decisionReceipt: decisionReceiptSchema.optional(),
   idempotencyKey: idempotencyKeySchema.optional(),
-  decisionId: z.string().min(1).max(128).optional(),
-  quoteExpiresAt: z.string().min(1).max(64).optional(),
-  buildAuthorization: z.string().min(1).max(4096).optional(),
 });
 
 export const agentPlanRequestSchema = z.object({

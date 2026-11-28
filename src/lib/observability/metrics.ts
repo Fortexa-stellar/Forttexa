@@ -65,6 +65,7 @@ export const ALLOWED_RESULTS: ReadonlySet<StellarSubmitResult> = new Set<Stellar
   "idempotency_replay",
   "idempotency_conflict",
   "source_wallet_mismatch",
+  "signer_wallet_mismatch",
 ]);
 
 /**
@@ -95,6 +96,7 @@ export const SUBMIT_FAILURE_RESULTS: readonly StellarSubmitResult[] = [
   "validation_failure",
   "idempotency_conflict",
   "source_wallet_mismatch",
+  "signer_wallet_mismatch",
 ];
 
 /**

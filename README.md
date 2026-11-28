@@ -171,7 +171,7 @@ Simulation is strictly read-only: it never saves the policy and never consumes u
 3. `Submit Signed XDR` orchestrates signing/submission path:
    - if signed input is already present → submit directly
    - if unsigned input is present → wallet signing is triggered first, then submit
-4. Submit signed tx: `POST /api/stellar/submit-signed` with the build response's `decisionId`, `quoteExpiresAt`, and `buildAuthorization` alongside `signedXdr`. Submit reloads the decision and rejects an expired quote or a build token that does not match the signed transaction.
+4. Submit signed tx: `POST /api/stellar/submit-signed` with the build response's `decisionId`, `quoteExpiresAt`, and `buildAuthorization` alongside `signedXdr` (all four are required; this is exactly what the console sends). Submit reloads the decision and rejects an expired quote or a build token that does not match the signed transaction, then validates the signed transaction against the quote the server stored (destination, asset, exact amount, memo, and a single payment operation) before anything is sent to Stellar. `decisionReceipt` is optional: when you include it, it is only cross-checked against that stored quote, never trusted on its own.
 5. Explorer URL is returned and shown as clickable link.
 
 #### Unknown request fields
@@ -187,7 +187,7 @@ Simulation is strictly read-only: it never saves the policy and never consumes u
 }
 ```
 
-`unknownFields` lists field names only (nested ones use dot notation, e.g. `decisionReceipt.reciptHash`), sorted, at most 10. Values are never echoed, and names that are not plain identifiers (up to 64 characters of `A-Z a-z 0-9 _`) are counted in `omittedUnknownFieldCount` instead. Any other validation problems in the same request are returned under `details`. All documented payloads are unchanged; `submit-signed` also accepts the documented build-response fields `decisionId`, `quoteExpiresAt` and `buildAuthorization`.
+`unknownFields` lists field names only (nested ones use dot notation, e.g. `decisionReceipt.reciptHash`), sorted, at most 10. Values are never echoed, and names that are not plain identifiers (up to 64 characters of `A-Z a-z 0-9 _`) are counted in `omittedUnknownFieldCount` instead. Any other validation problems in the same request are returned under `details`. All documented payloads are unchanged; `submit-signed` requires the documented build-response fields `decisionId`, `quoteExpiresAt` and `buildAuthorization`, and accepts an optional `decisionReceipt` (including the `expiresAt` and `amountStroops` the build response carries).
 
 #### Quote-to-XDR trust boundary
 

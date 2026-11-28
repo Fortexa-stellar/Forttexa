@@ -20,6 +20,21 @@ const storeMocks = vi.hoisted(() => ({
   failComplete: false,
 }));
 
+const readStoreMocks = vi.hoisted(() => ({
+  getAuditEntryById: vi.fn(),
+  getUserWallet: vi.fn(),
+}));
+
+vi.mock("@/lib/storage/audit-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage/audit-store")>()),
+  getAuditEntryById: readStoreMocks.getAuditEntryById,
+}));
+
+vi.mock("@/lib/storage/user-wallet-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage/user-wallet-store")>()),
+  getUserWallet: readStoreMocks.getUserWallet,
+}));
+
 vi.mock("@/lib/storage/submit-idempotency-store", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/storage/submit-idempotency-store")>();
@@ -58,31 +73,47 @@ vi.mock("@stellar/stellar-sdk", async () => {
   };
 });
 
-import {
-  Account,
-  Asset,
-  Keypair,
-  Memo,
-  Networks,
-  Operation,
-  TransactionBuilder,
-} from "@stellar/stellar-sdk";
+import { Keypair, Networks, TransactionBuilder } from "@stellar/stellar-sdk";
 import { NextRequest } from "next/server";
 
 import { POST as submitSignedPost } from "@/app/api/stellar/submit-signed/route";
+import {
+  makeAuthorizedSubmission,
+  type AuthorizedSubmission,
+} from "@/app/api/stellar/submit-signed/test-fixtures";
 import { buildDecisionReceipt } from "@/lib/stellar/verify-payment-quote";
 import { IDEMPOTENCY_KEY_ERROR } from "@/lib/validation/schemas";
 import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
 import { resetRateLimitStore } from "@/lib/security/rate-limit";
+import { getAuditEntryById } from "@/lib/storage/audit-store";
 import {
   getIdempotencyRecord,
   resetSubmitIdempotencyState,
 } from "@/lib/storage/submit-idempotency-store";
 
 const OPERATOR_USER_ID = "idem-operator-id";
+const OPERATOR_WALLET_KEYPAIR = Keypair.random();
 const mockTxHash = "b".repeat(64);
-const decisionId = "00000000-0000-4000-8000-000000000001";
-const quoteExpiresAt = new Date(Date.now() + 300_000).toISOString();
+const OTHER_TX_HASH = "d".repeat(64);
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function slowSuccess(ms: number, hash = mockTxHash) {
+  return new Promise<ReturnType<typeof horizonAccepted>>((resolve) => {
+    setTimeout(() => resolve(horizonAccepted(hash)), ms);
+  });
+}
+
+/** Every signed XDR this file builds, with the decision the server "stored" for it. */
+const submissions = new Map<string, AuthorizedSubmission>();
 
 function horizonAccepted(hash = mockTxHash) {
   return {
@@ -105,8 +136,20 @@ function operatorCookie() {
   return `${AUTH_COOKIE_KEY}=${token}`;
 }
 
+/**
+ * Adds the build-response fields the console always sends alongside the signed
+ * XDR (decisionId, quoteExpiresAt, buildAuthorization).
+ */
+function withAuthorization(body: Record<string, unknown>): Record<string, unknown> {
+  const submission = submissions.get(String(body.signedXdr));
+  if (!submission) return body;
+  const { signedXdr, ...authorization } = submission.body;
+  void signedXdr;
+  return { ...authorization, ...body };
+}
+
 function submitRequest(
-  body: unknown,
+  body: Record<string, unknown>,
   extraHeaders: Record<string, string> = {},
 ) {
   return new NextRequest("http://localhost/api/stellar/submit-signed", {
@@ -116,70 +159,61 @@ function submitRequest(
       cookie: operatorCookie(),
       ...extraHeaders,
     },
-    body: JSON.stringify(authorizedBody),
+    body: JSON.stringify(withAuthorization(body)),
   });
 }
 
 function buildSignedXdr(amount: string, destination?: string) {
-  const source = Keypair.random();
-  const destinationKey = Keypair.random();
-  const account = new Account(source.publicKey(), "1");
-  const tx = new TransactionBuilder(account, {
-    fee: "100",
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      Operation.payment({
-        destination: destination ?? destinationKey.publicKey(),
-        asset: Asset.native(),
-        amount,
-      }),
-    )
-    .addMemo(Memo.text("fortexa:idem"))
-    .setTimeout(30)
-    .build();
-  tx.sign(source);
-  return tx.toXDR();
+  const submission = makeAuthorizedSubmission({
+    userId: OPERATOR_USER_ID,
+    signer: OPERATOR_WALLET_KEYPAIR,
+    amount,
+    destination,
+    memo: "fortexa:idem",
+  });
+  submissions.set(submission.signedXdr, submission);
+  return submission.signedXdr;
 }
 
 function makeDecisionReceiptForXdr(signedXdr: string, amount: string) {
   const decoded = TransactionBuilder.fromXDR(signedXdr, Networks.TESTNET);
   const paymentOp = decoded.operations[0] as (typeof decoded.operations)[0] & {
     destination?: string;
-    amount?: string;
   };
   return buildDecisionReceipt({
     destination: paymentOp.destination ?? OPERATOR_WALLET_KEYPAIR.publicKey(),
     amountXLM: amount,
     asset: "native",
-    memo:
-      decoded.memo?.type === "text"
-        ? String(decoded.memo.value ?? "fortexa:idem")
-        : "fortexa:idem",
+    memo: "fortexa:idem",
     network: "testnet",
   });
 }
 
 beforeEach(async () => {
-  vi.mocked(getAuditEntryById).mockResolvedValue({
-    id: decisionId,
-    timestamp: new Date().toISOString(),
-    decision: "APPROVE",
-    paymentQuote: { expiresAt: quoteExpiresAt },
-  } as Awaited<ReturnType<typeof getAuditEntryById>>);
-  horizonMocks.submitTransaction.mockReset();
-  horizonMocks.submitTransaction.mockResolvedValue({
-    hash: mockTxHash,
-    ledger: 42,
-    successful: true,
-    result_xdr: "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA=",
+  vi.mocked(getAuditEntryById).mockImplementation(async (userId: string, id: string) => {
+    if (userId !== OPERATOR_USER_ID) return undefined;
+    for (const submission of submissions.values()) {
+      if (submission.auditEntry.id === id) return submission.auditEntry;
+    }
+    return undefined;
   });
+  readStoreMocks.getUserWallet.mockResolvedValue({
+    userId: OPERATOR_USER_ID,
+    publicKey: OPERATOR_WALLET_KEYPAIR.publicKey(),
+    source: "external",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  storeMocks.failComplete = false;
+  horizonMocks.submitTransaction.mockReset();
+  horizonMocks.submitTransaction.mockResolvedValue(horizonAccepted());
   horizonMocks.getAuditEntry.mockResolvedValue({
     id: "00000000-0000-4000-8000-000000000000",
     paymentQuote: { memo: "fortexa:idempotency-test" },
   });
   horizonMocks.verifyQuote.mockReturnValue({ ok: true, quote: {} });
 
+  await resetRateLimitStore();
   await resetSubmitIdempotencyState(OPERATOR_USER_ID);
 });
 
@@ -477,10 +511,10 @@ describe("submit-signed idempotency - rejected retries", () => {
 
     try {
       const store = await import("@/lib/storage/submit-idempotency-store");
-      const requestHash = store.hashCanonicalPaymentBody(key, {
-        signedXdr,
-        idempotencyKey: key,
-      });
+      const requestHash = store.hashCanonicalPaymentBody(
+        key,
+        withAuthorization({ signedXdr, idempotencyKey: key }),
+      );
       await store.beginIdempotentSubmit(OPERATOR_USER_ID, key, requestHash, {
         inFlightWaitMs: 0,
       });

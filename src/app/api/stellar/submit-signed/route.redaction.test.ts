@@ -22,15 +22,21 @@ vi.mock("@/lib/readiness/production", () => ({
   getProtectedPaymentFlowReadinessReport: vi.fn(() => null),
 }));
 
+// The console contract: signedXdr plus the three build-response fields.
+const SUBMIT_BODY = {
+  signedXdr: "A".repeat(40),
+  decisionId: "00000000-0000-4000-8000-000000000001",
+  quoteExpiresAt: "2099-01-01T00:00:00.000Z",
+  buildAuthorization: "payload.signature",
+};
+
 vi.mock("@/lib/http/read-json-body", () => ({
-  readJsonBody: vi.fn(async () => ({ ok: true as const, data: { signedXdr: "A".repeat(40) } })),
+  readJsonBody: vi.fn(async () => ({ ok: true as const, data: SUBMIT_BODY })),
 }));
 
-vi.mock("@/lib/storage/submit-idempotency-store", () => ({
-  getIdempotencyRecord: vi.fn(),
-  hashSignedXdr: vi.fn(() => "hash"),
+vi.mock("@/lib/storage/submit-idempotency-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage/submit-idempotency-store")>()),
   maybeRunCleanup: vi.fn(),
-  putIdempotencyRecord: vi.fn(),
 }));
 
 vi.mock("@/lib/storage/user-wallet-store", () => ({
@@ -49,7 +55,7 @@ function submitRequest() {
   return new NextRequest("http://localhost/api/stellar/submit-signed", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ signedXdr: "A".repeat(40) }),
+    body: JSON.stringify(SUBMIT_BODY),
   });
 }
 
@@ -58,7 +64,7 @@ describe("/api/stellar/submit-signed observability redaction", () => {
     consoleErrorSpy.mockClear();
     vi.mocked(requireAuth).mockReturnValue({
       ok: true,
-      session: { userId: "submit-redaction-user" },
+      session: { userId: "submit-redaction-user", publicKey: TEST_DESTINATION },
     } as ReturnType<typeof requireAuth>);
     resetMetrics();
   });

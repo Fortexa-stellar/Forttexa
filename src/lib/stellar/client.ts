@@ -98,7 +98,7 @@ export function decodeSignedXdrSourceAccount(signedXdr: string): SignedXdrSource
         destination: operation.destination,
         amountXLM: operation.amount,
         asset: "native" as const,
-        memo: memoValue === undefined
+        memo: memoValue === undefined || memoValue === null
           ? undefined
           : typeof memoValue === "string"
             ? memoValue

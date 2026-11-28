@@ -55,7 +55,7 @@ describe("POST /api/stellar/submit-signed body limits", () => {
     expect(response.status).toBe(400);
 
     const payload = (await response.json()) as { error: string };
-    expect(payload.error).toBe("Invalid signed transaction submission.");
+    expect(payload.error).toBe("Invalid signed transaction payload.");
   });
 });
 

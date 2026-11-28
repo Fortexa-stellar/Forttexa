@@ -15,6 +15,7 @@ import { readinessBlockResponse } from "@/lib/readiness/guard";
 import { recordDecisionOutcome } from "@/lib/observability/metrics";
 import { redactSensitiveFields } from "@/lib/observability/redact";
 import { demoScenarios } from "@/lib/scenarios/seed";
+import { enforceRequestGate, gateErrorHeaders } from "@/lib/security/enforcement-gate";
 import { rateLimitHeaders } from "@/lib/security/rate-limit";
 import {
   appendAuditEntry,
@@ -25,6 +26,7 @@ import { getUserWallet } from "@/lib/storage/user-wallet-store";
 import { getPolicyConfig } from "@/lib/storage/policy-store";
 import { buildPaymentQuoteFromDecision } from "@/lib/stellar/verify-payment-quote";
 import type { AuditEntry } from "@/lib/types/domain";
+import { logValidationFailure } from "@/lib/validation/errors";
 import { decisionRequestSchema } from "@/lib/validation/schemas";
 import { buildUnknownFieldsBody } from "@/lib/validation/unknown-fields";
 
@@ -66,8 +68,8 @@ export async function POST(request: NextRequest) {
     actionDomain: typeof rawActionDomain === "string" ? rawActionDomain : undefined,
   });
 
-  if (!rate.ok) {
-    logWarn("Decision route rate limited", context);
+  if (!gate.ok) {
+    logWarn("Decision route denied by enforcement gate", { ...context, code: gate.code });
     return respond(request, {
       route: "/api/decision",
       startedAtMs,
@@ -92,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     const userId = auth.session.userId;
 
-    const rawBody = (await request.json().catch(() => ({}))) as unknown;
+    // The body was already read above for the gate; a request body can only be read once.
     requestBody = rawBody;
     const parsedBody = decisionRequestSchema.safeParse(rawBody);
 
@@ -134,20 +136,7 @@ export async function POST(request: NextRequest) {
     const { policy } = await getPolicyConfig();
     const usage = await getDailyUsage(userId);
 
-    // Shared engine path (same function simulate uses): include asset,
-    // amount, destination, and memo in the allow/deny comparison whenever the
-    // caller supplies a payment quote. No transaction is built here.
-    const quoteInput = body.paymentQuote ?? body.paymentQuoteInput;
-    const payment = quoteInput
-      ? buildPaymentComparisonFromQuoteInput({
-          destination: quoteInput.destination,
-          memo: quoteInput.memo,
-          network: quoteInput.network,
-          asset: quoteInput.asset,
-          amountXLM: action.amountXLM,
-        })
-      : undefined;
-    const decision = await evaluateDecision(action, policy, usage, payment);
+    const decision = await evaluateDecision(action, policy, usage);
 
     let finalDecision = decision.decision;
     let explanation = decision.explanation;
@@ -177,15 +166,16 @@ export async function POST(request: NextRequest) {
       ),
       ...(decision.reasonCode ? { reasonCode: decision.reasonCode } : {}),
       ...((finalDecision === "APPROVE" || finalDecision === "WARN") &&
-      (body.paymentQuote || body.paymentQuoteInput)
+      body.paymentQuoteInput
         ? {
             paymentQuote: (() => {
               const quote = buildPaymentQuoteFromDecision({
-                destination: (body.paymentQuote || body.paymentQuoteInput)!.destination,
+                destination: body.paymentQuoteInput.destination,
                 amountXLM: action.amountXLM,
-                memo: (body.paymentQuote || body.paymentQuoteInput)!.memo,
+                memo: body.paymentQuoteInput.memo,
                 actionId: action.id,
-                network: (body.paymentQuote || body.paymentQuoteInput)!.network,
+                network: body.paymentQuoteInput.network,
+                nowMs: decisionNowMs,
               });
               const amountStroops = decisionAmountStroops(action.amountXLM);
               return amountStroops ? { ...quote, amountStroops } : quote;

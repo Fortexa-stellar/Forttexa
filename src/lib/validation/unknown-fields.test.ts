@@ -46,9 +46,12 @@ const validReceipt = {
   receiptHash: "a".repeat(64),
 };
 
+// What the console submits: signedXdr plus the build-response fields.
 const validSubmit = {
   signedXdr: "A".repeat(40),
-  decisionReceipt: validReceipt,
+  decisionId: "00000000-0000-4000-8000-000000000001",
+  quoteExpiresAt: "2099-01-01T00:00:00.000Z",
+  buildAuthorization: "payload.signature",
 };
 
 function failure(result: { success: boolean; error?: ZodError }): ZodError {
@@ -140,18 +143,34 @@ describe("POST /api/stellar/build-payment schema", () => {
 
 describe("POST /api/stellar/submit-signed schema", () => {
   it("still accepts every documented payload shape", () => {
+    // The console contract, with no decisionReceipt.
     expect(stellarSubmitSignedRequestSchema.safeParse(validSubmit).success).toBe(true);
     expect(
       stellarSubmitSignedRequestSchema.safeParse({ ...validSubmit, idempotencyKey: "retry-key-0001" }).success,
     ).toBe(true);
+    // Echoing the build response's decisionReceipt back is still accepted,
+    // including the fields only the server stamps on a stored quote.
     expect(
       stellarSubmitSignedRequestSchema.safeParse({
         ...validSubmit,
         decisionId: randomUUID(),
         quoteExpiresAt: new Date().toISOString(),
         buildAuthorization: "b".repeat(64),
+        decisionReceipt: {
+          ...validReceipt,
+          expiresAt: new Date().toISOString(),
+          amountStroops: "180000000",
+        },
       }).success,
     ).toBe(true);
+  });
+
+  it("requires the build-response fields the server validates against", () => {
+    for (const field of ["decisionId", "quoteExpiresAt", "buildAuthorization"] as const) {
+      const { [field]: _omitted, ...rest } = validSubmit;
+      void _omitted;
+      expect(stellarSubmitSignedRequestSchema.safeParse(rest).success, field).toBe(false);
+    }
   });
 
   it("rejects a single unknown field with the stable code", () => {
