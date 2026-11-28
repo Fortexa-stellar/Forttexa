@@ -31,6 +31,8 @@ describe("/api/policy/validate route", () => {
     const payload = (await response.json()) as { valid: boolean; data?: unknown };
     expect(payload.valid).toBe(true);
     expect(payload.data).toBeDefined();
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   });
 
   it("returns 400 with per-field errors for an invalid rule", async () => {
@@ -46,6 +48,8 @@ describe("/api/policy/validate route", () => {
 
     expect(payload.valid).toBe(false);
     expect(payload.errors?.length).toBeGreaterThan(0);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
 
     // The error strings are `path: message` lines for the offending field.
     expect(payload.errors?.some((line) => line.startsWith("perTxCapXLM: "))).toBe(true);
@@ -108,6 +112,10 @@ describe("/api/policy/validate route", () => {
     expect(response.status).toBe(500);
     const payload = (await response.json()) as { valid: boolean; errors?: string[] };
     expect(payload.valid).toBe(false);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(payload.errors?.length).toBeGreaterThan(0);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   });
 });

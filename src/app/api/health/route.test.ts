@@ -75,6 +75,9 @@ describe("GET /api/health", () => {
     expect(json.dependencies.horizon).toBe("healthy");
     expect(json.dependencies.groq).toBe("healthy");
     expect(json.dependencies.blocklist).toBe("healthy");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("x-request-id")).toBeTruthy();
   });
 
   it("returns degraded states when dependencies fail or have errors", async () => {
@@ -104,6 +107,9 @@ describe("GET /api/health", () => {
     expect(json.migrations.appliedId).toBe("003_submit_idempotency");
     expect(json.dependencies.horizon).toBe("degraded");
     expect(json.dependencies.blocklist).toBe("degraded");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("x-request-id")).toBeTruthy();
   });
 
   it("returns unconfigured/unknown states when optional dependencies are missing", async () => {

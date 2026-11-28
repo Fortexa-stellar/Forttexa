@@ -6,6 +6,7 @@ import { PlanError, PLAN_ERRORS, PLAN_ERROR_MESSAGES } from "@/lib/ai/plan-error
 import { requireAuth } from "@/lib/auth/require-auth";
 import { logError, logWarn } from "@/lib/observability/logger";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
+import { securityHeadersForRequest } from "@/lib/security/headers";
 import { agentPlanRequestSchema } from "@/lib/validation/schemas";
 import { toPublicValidationDetails } from "@/lib/validation/errors";
 
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
   if (!rate.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded for agent planning. Try again shortly." },
-      { status: 429, headers: rateLimitHeaders(rate) }
+      { status: 429, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
     );
   }
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
           error: "Invalid request body.",
           details: toPublicValidationDetails(parsed.error),
         },
-        { status: 400, headers: rateLimitHeaders(rate) }
+        { status: 400, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
           error: message,
           code: reason,
         },
-        { status: 422, headers: rateLimitHeaders(rate) }
+        { status: 422, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
         decision,
         provider: "groq",
       },
-      { headers: rateLimitHeaders(rate) }
+      { headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
     );
   } catch (error) {
     if (error instanceof PlanError) {
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
           error: PLAN_ERROR_MESSAGES[error.code],
           code: error.code,
         },
-        { status: 422, headers: rateLimitHeaders(rate) }
+        { status: 422, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
           error: PLAN_ERROR_MESSAGES[PLAN_ERRORS.PROVIDER_UNAVAILABLE],
           code: PLAN_ERRORS.PROVIDER_UNAVAILABLE,
         },
-        { status: 422, headers: rateLimitHeaders(rate) }
+        { status: 422, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { error: "Failed to generate agent plan." },
-      { status: 500, headers: rateLimitHeaders(rate) }
+      { status: 500, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
     );
   }
 }

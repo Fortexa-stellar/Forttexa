@@ -224,6 +224,22 @@ describe("evaluateSecurity", () => {
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
+
+    it("continues matching the cached list when a refresh times out", async () => {
+      process.env.FORTEXA_BLOCKLIST_URL = "https://example.com/blocklist.json";
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(new Response(JSON.stringify(["cached-bad.com"]), { status: 200 }))
+        .mockRejectedValueOnce(new DOMException("The operation timed out", "TimeoutError"));
+
+      await evaluateSecurity(makeAction({ domain: "cached-bad.com" }));
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6 * 60 * 1000);
+
+      const result = await evaluateSecurity(makeAction({ domain: "cached-bad.com" }));
+
+      expect(result.findings.map((finding) => finding.code)).toContain("BLOCKLIST_MATCH");
+      expect(result.analyzerStatus.blocklistTimedOut).toBe(true);
+      expect(result.analyzerStatus.blocklistError).toBe("BLOCKLIST_FETCH_TIMEOUT");
+    });
   });
 
   describe("analyzer status tracking", () => {
@@ -247,7 +263,7 @@ describe("evaluateSecurity", () => {
 
       const result = await evaluateSecurity(makeAction());
       expect(result.analyzerStatus.blocklistStatus).toBe("error");
-      expect(result.analyzerStatus.blocklistError).toBe("Connection refused");
+      expect(result.analyzerStatus.blocklistError).toBe("BLOCKLIST_FETCH_FAILED");
       expect(result.analyzerStatus.isDegraded).toBe(true);
       expect(result.analyzerStatus.degradationReasons).toContain(
         "blocklist_fetch_failed",
@@ -264,9 +280,8 @@ describe("evaluateSecurity", () => {
 
       const result = await evaluateSecurity(makeAction());
 
-      // Timeouts surface as an error status with the dedicated timeout flag
-      // (see commit "propagate blocklist fetch errors and fix secret-targeting regex").
-      expect(result.analyzerStatus.blocklistStatus).toBe("error");
+      expect(result.analyzerStatus.blocklistStatus).toBe("timeout");
+      expect(result.analyzerStatus.blocklistError).toBe("BLOCKLIST_FETCH_TIMEOUT");
       expect(result.analyzerStatus.blocklistTimedOut).toBe(true);
       expect(result.analyzerStatus.isDegraded).toBe(true);
     });
