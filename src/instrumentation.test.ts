@@ -21,6 +21,18 @@ describe("Next.js startup instrumentation", () => {
     expect(ensureDatabaseReadyMock).toHaveBeenCalledOnce();
   });
 
+  it("rejects an insecure cookie override before opening storage", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    vi.stubEnv("FORTEXA_SESSION_COOKIE_SECURE", "false");
+    try {
+      await expect(register()).rejects.toThrow("Production session cookies must use Secure");
+      expect(ensureDatabaseReadyMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("fails startup when database migrations fail", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
     ensureDatabaseReadyMock.mockRejectedValueOnce(new Error("migration failed"));
