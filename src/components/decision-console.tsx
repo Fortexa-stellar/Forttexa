@@ -111,6 +111,10 @@ export function DecisionConsole() {
   const [generatedAction, setGeneratedAction] = useState<AgentAction | null>(null);
   const [generatingAction, setGeneratingAction] = useState(false);
   const [preparingXdr, setPreparingXdr] = useState(false);
+  const [signing, setSigning] = useState(false);
+  // Set synchronously before the first await so a second click that lands before
+  // React re-renders with `signing` still cannot open a competing wallet prompt.
+  const signingRef = useRef(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [signError, setSignError] = useState<{ code: FreighterSignErrorCode; message: string } | null>(null);
 
@@ -136,7 +140,7 @@ export function DecisionConsole() {
     [selectedScenarioId]
   );
 
-  const writeDisabled = loading || preparingXdr || sessionLoading || !isOperator;
+  const writeDisabled = loading || signing || preparingXdr || sessionLoading || !isOperator;
   const canHumanApprove = decisionData?.result.decision === "REQUIRE_APPROVAL";
 
   const activeAction = generatedAction ?? selectedScenario?.action;
@@ -402,6 +406,11 @@ export function DecisionConsole() {
 
   async function signWithFreighter() {
     if (!ensureOperator() || !unsignedXdr) return;
+    // A signing request is already waiting on the wallet: reusing the open
+    // prompt instead of stacking a second one behind it.
+    if (signingRef.current) return;
+    signingRef.current = true;
+    setSigning(true);
     setLoading(true);
     setMessage(null);
     setSignError(null);
@@ -422,6 +431,9 @@ export function DecisionConsole() {
       setSignedXdrInput(result.signedXdr);
       await submitSignedXdr(result.signedXdr);
     } finally {
+      // Restores the action after success, failure, or wallet cancellation.
+      signingRef.current = false;
+      setSigning(false);
       setLoading(false);
     }
   }
@@ -791,8 +803,8 @@ export function DecisionConsole() {
               </Button>
               {signError && unsignedXdr ? (
                 <Button onClick={signWithFreighter} disabled={writeDisabled} className="w-full gap-2 sm:w-auto">
-                  {loading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <RefreshCcw aria-hidden="true" className="h-4 w-4" />}
-                  Retry sign
+                  {signing || loading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <RefreshCcw aria-hidden="true" className="h-4 w-4" />}
+                  {signing ? "Waiting for Freighter..." : "Retry sign"}
                 </Button>
               ) : (
                 <Button
@@ -800,8 +812,8 @@ export function DecisionConsole() {
                   disabled={writeDisabled || (!signedXdrInput.trim() && !unsignedXdr)}
                   className="w-full gap-2 sm:w-auto"
                 >
-                  {loading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
-                  Sign & submit
+                  {signing || loading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
+                  {signing ? "Waiting for Freighter..." : "Sign & submit"}
                 </Button>
               )}
             </div>

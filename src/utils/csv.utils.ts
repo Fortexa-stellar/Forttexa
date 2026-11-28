@@ -4,8 +4,13 @@ export type CsvRow = Record<string, CsvValue>;
 export function sanitizeCsvCell(value: unknown): string {
   // Convert null/undefined to empty string
   const stringValue = value == null ? '' : String(value);
-  // If the string starts with any formula injection prefix, prepend a single quote.
-  if (/^[=+\-@]/.test(stringValue)) {
+  
+  // Check if the string (after trimming optional leading whitespace) starts with 
+  // any formula injection prefix. This prevents CSV injection attacks where
+  // spreadsheet applications interpret cells beginning with =, +, -, or @ as formulas.
+  // We check after optional whitespace because attackers might use spaces/tabs to bypass
+  // naive checks, and some spreadsheet apps still execute formulas with leading whitespace.
+  if (/^\s*[=+\-@]/.test(stringValue)) {
     return `'${stringValue}`;
   }
   return stringValue;

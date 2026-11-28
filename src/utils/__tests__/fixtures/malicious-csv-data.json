@@ -1,0 +1,41 @@
+[
+  {
+    "userId": "=cmd|\"/c calc\"!A1",
+    "id": "audit-malicious-1",
+    "timestamp": "2026-11-24T12:00:00Z",
+    "decision": "ALLOW",
+    "actionId": "+malicious-action",
+    "actionName": "=SUM(A1:A100)+HYPERLINK(\"http://evil.com\")",
+    "domain": "@malicious.domain",
+    "amountXLM": 100,
+    "explanation": " \t-1+1+cmd|\"/c notepad\"!A1",
+    "entryHash": "hash1",
+    "previousHash": ""
+  },
+  {
+    "userId": " =DANGEROUS_USER",
+    "id": "audit-malicious-2",
+    "timestamp": "2026-11-24T13:00:00Z",
+    "decision": "BLOCK",
+    "actionId": "  +ATTACK_ID",
+    "actionName": "\t@MALICIOUS()",
+    "domain": "   -evil.com",
+    "amountXLM": 50.5,
+    "explanation": "=1+1",
+    "entryHash": "hash2",
+    "previousHash": "hash1"
+  },
+  {
+    "userId": "GCTEST456",
+    "id": "audit-malicious-3",
+    "timestamp": "2026-11-24T14:00:00Z",
+    "decision": "REQUIRE_APPROVAL",
+    "actionId": "-negative-id",
+    "actionName": " =FORMULA_WITH_SPACE",
+    "domain": "@SUM(1+1)",
+    "amountXLM": 0.1,
+    "explanation": "+plus prefix attack",
+    "entryHash": "hash3",
+    "previousHash": "hash2"
+  }
+]

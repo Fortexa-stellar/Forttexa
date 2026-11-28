@@ -57,6 +57,12 @@ function expectStellarUntouched() {
   expect(stellar.submitSignedTransactionXdr).not.toHaveBeenCalled();
 }
 
+function expectSecurityHeaders(response: Response) {
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(response.headers.get("x-request-id")).toBeTruthy();
+}
+
 describe("stellar balance/fund/pay decision gate", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -69,6 +75,7 @@ describe("stellar balance/fund/pay decision gate", () => {
     const f = await fundPost(req("http://x/api/stellar/fund", "POST", {}, false));
     const p = await payPost(req("http://x/api/stellar/pay", "POST", payBody, false));
     expect([b.status, f.status, p.status]).toEqual([401, 401, 401]);
+    for (const response of [b, f, p]) expectSecurityHeaders(response);
     expect(blocklist.checkBlocklist).not.toHaveBeenCalled();
     expectStellarUntouched();
   });
@@ -79,7 +86,17 @@ describe("stellar balance/fund/pay decision gate", () => {
     const f = await fundPost(req("http://x/api/stellar/fund", "POST", { destination }));
     const p = await payPost(req("http://x/api/stellar/pay", "POST", payBody));
     expect([b.status, f.status, p.status]).toEqual([403, 403, 403]);
+    for (const response of [b, f, p]) expectSecurityHeaders(response);
     expectStellarUntouched();
+  });
+
+  it("returns baseline security headers on a successful balance response", async () => {
+    stellar.getNativeBalance.mockResolvedValue({ balance: "10" });
+
+    const response = await balanceGet(req("http://x/api/stellar/balance", "GET"));
+
+    expect(response.status).toBe(200);
+    expectSecurityHeaders(response);
   });
 
   it("rejects pay without a matching allow decision", async () => {

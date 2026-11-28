@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
 import { readJsonBody } from "@/lib/http/read-json-body";
+import { enforceRequestGate } from "@/lib/security/enforcement-gate";
 import { getProtectedPaymentFlowReadinessReport } from "@/lib/readiness/production";
 import { readinessBlockResponse } from "@/lib/readiness/guard";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";

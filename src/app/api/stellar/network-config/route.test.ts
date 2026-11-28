@@ -1,4 +1,5 @@
 import { Networks } from "@stellar/stellar-sdk";
+import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { GET } from "@/app/api/stellar/network-config/route";
@@ -19,8 +20,10 @@ describe("server network snapshot", () => {
     process.env.STELLAR_HORIZON_URL = "https://horizon.stellar.org";
     process.env.STELLAR_NETWORK_PASSPHRASE = Networks.PUBLIC;
 
-    const response = GET();
+    const response = GET(new NextRequest("http://localhost/api/stellar/network-config"));
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await response.json()).toEqual({
       profile: "public",
       fingerprint: getStellarNetworkFingerprint(),
