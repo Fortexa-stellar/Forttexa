@@ -128,6 +128,8 @@ export interface PaymentQuote {
   memo: string;
   network: StellarNetworkId;
   receiptHash?: string;
+  /** Fixed at the time of the decision, rather than extended by later steps. */
+  expiresAt?: string;
 }
 
 export interface AuditEntry {
