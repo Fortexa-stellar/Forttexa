@@ -95,6 +95,6 @@ describe("user-wallet-store (fallback)", () => {
 
     fetched = await getUserWallet("user-3");
     expect(fetched).toBeNull();
-    await expect(getWalletFromSession({ userId: "user-3", email: "wallet:GDEV789" })).resolves.toBeNull();
+    await expect(getWalletFromSession({ userId: "user-3" })).resolves.toBeNull();
   });
 });

@@ -103,6 +103,7 @@ function engineDecision(decision: "APPROVE" | "WARN" | "REQUIRE_APPROVAL" | "BLO
     riskScore: 10,
     riskFindings: [],
     requiresManualApproval: decision === "REQUIRE_APPROVAL",
+    primaryRuleId: null,
   };
 }
 

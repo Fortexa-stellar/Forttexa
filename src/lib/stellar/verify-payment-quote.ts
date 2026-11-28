@@ -1,5 +1,14 @@
 import { createHash } from "node:crypto";
 
+import {
+  FeeBumpTransaction,
+  MemoText,
+  TransactionBuilder,
+  type Memo,
+  type Transaction,
+} from "@stellar/stellar-sdk";
+
+import { getStellarNetworkPassphrase } from "@/lib/stellar/network-config";
 import { validateRequestTimestamp } from "@/lib/stellar/request-timestamp-skew";
 import {
   parseXlmNumberToStroops,
@@ -19,7 +28,8 @@ export type PaymentQuoteField =
   | "amountXLM"
   | "asset"
   | "memo"
-  | "network";
+  | "network"
+  | "requestTimestampMs";
 
 export type PaymentBuildParams = {
   destination: string;
@@ -27,6 +37,13 @@ export type PaymentBuildParams = {
   asset: StellarAssetId;
   memo?: string;
   network: StellarNetworkId;
+  /**
+   * Optional epoch-millisecond timestamp the client attaches to this request.
+   * When present it is checked against the configured clock-skew window (see
+   * {@link validateRequestTimestamp}) before any other verification runs.
+   * Omitting it skips the check, so existing callers are unaffected.
+   */
+  requestTimestampMs?: number;
 };
 
 export type VerifyPaymentQuoteResult =
@@ -94,7 +111,7 @@ export function isValidPaymentAmountString(amount: string): boolean {
 const DEFAULT_QUOTE_TTL_SECONDS = 300;
 
 /**
- * Returns the payment quote TTL in seconds.
+ * Returns the payment quote TTL in milliseconds.
  * Reads FORTEXA_PAYMENT_QUOTE_TTL_SECONDS; falls back to 300 s when the
  * value is absent, non-numeric, or less than 1.
  */
@@ -103,40 +120,27 @@ export function getQuoteTtlMs(): number {
     process.env.FORTEXA_PAYMENT_QUOTE_TTL_SECONDS ?? DEFAULT_QUOTE_TTL_SECONDS,
   );
   if (!Number.isFinite(parsed) || parsed < 1) {
-    return DEFAULT_QUOTE_TTL_SECONDS;
+    return DEFAULT_QUOTE_TTL_SECONDS * 1000;
   }
-  return Math.floor(parsed);
+  return Math.floor(parsed) * 1000;
+}
+
+/** The payment quote TTL in whole seconds. */
+export function getQuoteTtlSeconds(): number {
+  return Math.floor(getQuoteTtlMs() / 1000);
 }
 
 /**
  * Shared "is this decision still allowed to spend?" gate: the quote must be
- * present on the entry and still within its TTL window. Freshness is measured
- * with the shared clock-skew primitive (issue #185) rather than a bespoke
- * `Date.now()` subtraction, so the quote expires on the same boundary the rest
- * of the payment flow uses. A quote timestamp that is unparseable, or dated
- * implausibly far in the future, is refused for the same reason.
+ * present on the entry and its expiry (the quote's own `expiresAt`, or the
+ * entry timestamp plus the TTL for older entries) must still be in the future.
  */
-function assertQuoteFreshAndPresent(auditEntry: AuditEntry): VerifyPaymentQuoteResult {
-  const freshness = validateRequestTimestamp(Date.parse(auditEntry.timestamp), {
-    maxPastSkewSeconds: getQuoteTtlSeconds(),
-  });
-
-  if (!freshness.ok) {
-    if (freshness.code === "stale") {
-      return {
-        ok: false,
-        status: 403,
-        error: "Payment quote has expired. Please re-evaluate the action.",
-      };
-    }
-    return {
-      ok: false,
-      status: 403,
-      error: "Payment quote has an invalid timestamp. Please re-evaluate the action.",
-      field: "requestTimestampMs",
-    };
-  }
-
+function assertQuoteFreshAndPresent(
+  auditEntry: AuditEntry,
+  nowMs = Date.now(),
+):
+  | { ok: true; quote: PaymentQuote }
+  | { ok: false; status: 403; error: string } {
   const quote = auditEntry.paymentQuote;
   if (!quote) {
     return {
@@ -146,15 +150,36 @@ function assertQuoteFreshAndPresent(auditEntry: AuditEntry): VerifyPaymentQuoteR
     };
   }
 
+  const expiresAtMs = Date.parse(getQuoteExpiresAt(auditEntry));
+  if (!Number.isFinite(expiresAtMs) || nowMs >= expiresAtMs) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Payment quote has expired. Please re-evaluate the action.",
+    };
+  }
+
   return { ok: true, quote };
 }
 
 export function normalizeAmountXLM(amount: number | string): string {
-  const parsed = typeof amount === "number" ? amount : Number.parseFloat(amount);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error("Invalid XLM amount.");
+  const valid =
+    typeof amount === "number"
+      ? isValidPaymentAmountNumber(amount)
+      : isValidPaymentAmountString(amount);
+
+  if (!valid) {
+    throw new Error(PAYMENT_AMOUNT_ERROR);
   }
-  return parsed.toFixed(7);
+
+  const stroops = toAuthorizedStroops(amount);
+  if (stroops === null) {
+    throw new Error(PAYMENT_AMOUNT_ERROR);
+  }
+
+  // Render from the exact stroop count rather than from a double, so the
+  // normalized string is the amount that was authorized, to the stroop.
+  return stroopsToXlmString(stroops);
 }
 
 export function buildDecisionReceipt(input: {
@@ -188,18 +213,40 @@ export function buildPaymentQuoteFromDecision(input: {
   network?: StellarNetworkId;
   nowMs?: number;
 }): PaymentQuote {
-  return buildDecisionReceipt({
-    destination: input.destination,
-    amountXLM: input.amountXLM,
-    memo: input.memo ?? `fortexa:${input.actionId}`,
-    network: input.network,
-  });
+  return {
+    ...buildDecisionReceipt({
+      destination: input.destination,
+      amountXLM: input.amountXLM,
+      memo: input.memo ?? `fortexa:${input.actionId}`,
+      network: input.network,
+    }),
+    expiresAt: new Date((input.nowMs ?? Date.now()) + getQuoteTtlMs()).toISOString(),
+  };
 }
 
 export function getQuoteExpiresAt(auditEntry: AuditEntry): string {
   if (auditEntry.paymentQuote?.expiresAt) return auditEntry.paymentQuote.expiresAt;
   const legacyExpiryMs = Date.parse(auditEntry.timestamp) + getQuoteTtlMs();
   return Number.isFinite(legacyExpiryMs) ? new Date(legacyExpiryMs).toISOString() : "";
+}
+
+/** Rechecks the persisted decision and its original expiry at submission time. */
+export function isPaymentDecisionCurrent(
+  auditEntry: AuditEntry | undefined,
+  decisionId: string,
+  quoteExpiresAt: string,
+  nowMs = Date.now(),
+): boolean {
+  if (
+    !auditEntry?.paymentQuote ||
+    auditEntry.id !== decisionId ||
+    !EXECUTABLE_DECISIONS.has(auditEntry.decision)
+  ) {
+    return false;
+  }
+  const storedExpiry = getQuoteExpiresAt(auditEntry);
+  const expiryMs = Date.parse(storedExpiry);
+  return storedExpiry === quoteExpiresAt && Number.isFinite(expiryMs) && nowMs < expiryMs;
 }
 
 export type ValidateDecisionReceiptResult =
@@ -316,15 +363,31 @@ export function verifyPaymentAgainstQuote(
     };
   }
 
+  const gate = assertQuoteFreshAndPresent(auditEntry, nowMs);
+  if (!gate.ok) {
+    return gate;
+  }
   const { quote } = gate;
 
-  const normalizedRequest = {
-    destination: request.destination.trim().toUpperCase(),
-    amountXLM: normalizeAmountXLM(request.amountXLM),
-    asset: request.asset,
-    memo: (request.memo ?? quote.memo).slice(0, 28),
-    network: request.network,
+  let normalizedRequest: Omit<PaymentBuildParams, "amountXLM"> & {
+    amountXLM: string;
   };
+  try {
+    normalizedRequest = {
+      destination: request.destination.trim().toUpperCase(),
+      amountXLM: normalizeAmountXLM(request.amountXLM),
+      asset: request.asset,
+      memo: (request.memo ?? quote.memo).slice(0, 28),
+      network: request.network,
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 400,
+      error: PAYMENT_AMOUNT_ERROR,
+      field: "amountXLM",
+    };
+  }
 
   if (normalizedRequest.destination !== quote.destination) {
     return {

@@ -9,7 +9,12 @@ vi.hoisted(() => {
 });
 
 const { runWithDatabaseMock } = vi.hoisted(() => ({
-  runWithDatabaseMock: vi.fn(async () => ({ available: false as const })),
+  runWithDatabaseMock: vi.fn(
+    async <T>(
+      _name: string,
+      _action: (pool: never) => Promise<T>,
+    ): Promise<{ available: true; value: T } | { available: false }> => ({ available: false as const }),
+  ),
 }));
 
 vi.mock("@/lib/storage/db", () => ({

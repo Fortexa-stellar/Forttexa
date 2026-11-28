@@ -2,7 +2,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { computeEntryHash, GENESIS_HASH } from "../src/lib/audit/hash-chain";
+import { computeEntryHash, GENESIS_HASH, getChainBoundaries } from "../src/lib/audit/hash-chain";
 import type { AuditEntry, AgentAction } from "../src/lib/types/domain";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

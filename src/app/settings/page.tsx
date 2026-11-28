@@ -9,6 +9,13 @@ import { TabNav, type TabItem } from "@/components/ui/tab-nav";
 import { WalletStatusCard } from "@/components/wallet-status-card";
 import { AUTH_COOKIE_KEY, verifySessionToken } from "@/lib/auth/session";
 import { getMetricsSnapshot } from "@/lib/observability/metrics";
+import {
+  getStellarHorizonUrl,
+  getStellarNetworkFingerprint,
+  getStellarNetworkPassphrase,
+  inferStellarNetworkProfile,
+  resolveStellarNetworkConfig,
+} from "@/lib/stellar/network-config";
 import { listAuditEntries } from "@/lib/storage/audit-store";
 
 const tabs: TabItem[] = [
@@ -32,6 +39,9 @@ export default async function SettingsPage({
   const session = sessionToken ? verifySessionToken(sessionToken) : null;
   const userId = session?.userId;
   const entries = userId ? await listAuditEntries(userId) : [];
+  const network = resolveStellarNetworkConfig();
+  const horizonUrl = getStellarHorizonUrl();
+  const networkPassphrase = getStellarNetworkPassphrase();
   const scenarioEvaluations =
     activeTab === "scenarios" ? await evaluateScenarioCatalog() : [];
 
@@ -79,7 +89,7 @@ export default async function SettingsPage({
           </div>
         </div>
       ) : null}
-      {activeTab === "scenarios" ? <ScenariosCatalog /> : null}
+      {activeTab === "scenarios" ? <ScenariosCatalog evaluations={scenarioEvaluations} /> : null}
       {activeTab === "ops" && opsMetricsSnapshot ? (
         <OpsDashboard initialMetrics={opsMetricsSnapshot} />
       ) : null}

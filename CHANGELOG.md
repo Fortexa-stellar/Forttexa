@@ -24,7 +24,7 @@ When a pull request changes security-sensitive behavior (any item marked **chang
 - None yet.
 
 ### Payment
-- None yet.
+- **[Changed]** `POST /api/decision`, `POST /api/stellar/build-payment` and `POST /api/stellar/submit-signed` reject unrecognized request fields with `400` and code `UNKNOWN_FIELDS` (field names only, never values) instead of silently ignoring them; see `src/lib/validation/unknown-fields.ts`.
 
 ---
 

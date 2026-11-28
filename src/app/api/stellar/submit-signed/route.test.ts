@@ -1,417 +1,460 @@
-declare global {
-  var MOCK_SESSION_PUBLIC_KEY: string | undefined;
-}
+import { rmSync } from "node:fs";
 
-import { Account, Asset, Keypair, Networks, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
-import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { POST } from "./route";
+const storeDir = vi.hoisted(() => {
+  const base = process.env.TEMP ?? process.env.TMPDIR ?? "/tmp";
+  const dir = `${base}/fortexa-submit-signed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  process.env.FORTEXA_STORE_DIR = dir;
+  process.env.FORTEXA_AUTH_SECRET = "submit-signed-route-test-secret-0123456789";
+  process.env.STELLAR_HORIZON_URL = "https://horizon-testnet.stellar.org";
+  delete process.env.DATABASE_URL;
+  return dir;
+});
 
-const { getAuditEntryMock, verifyQuoteMock } = vi.hoisted(() => ({
-  getAuditEntryMock: vi.fn(),
-  verifyQuoteMock: vi.fn(),
+const horizonMocks = vi.hoisted(() => ({
+  submitTransaction: vi.fn(),
 }));
 
-vi.mock("@/lib/auth/require-auth", () => ({
-  requireAuth: vi.fn(),
-}));
-
-vi.mock("@/lib/http/read-json-body", () => ({
-  readJsonBody: vi.fn(),
-}));
-
-vi.mock("@/lib/observability/http", () => ({
-  jsonWithRequestContext: vi.fn(
-    (
-      _request: unknown,
-      opts: { status: number; body: unknown; headers?: Record<string, string> },
-    ) =>
-      new Response(JSON.stringify(opts.body), {
-        status: opts.status,
-        headers: {
-          "Content-Type": "application/json",
-          ...(opts.headers ?? {}),
-        },
-      }),
-  ),
-}));
-
-vi.mock("@/lib/observability/logger", () => ({
-  getRequestLogContext: vi.fn(() => ({})),
-  logError: vi.fn(),
-  logInfo: vi.fn(),
-  logWarn: vi.fn(),
-}));
-
-vi.mock("@/lib/observability/metrics", () => ({
-  recordStellarSubmitResult: vi.fn(),
-}));
-
-vi.mock("@/lib/security/rate-limit", () => ({
-  consumeRateLimit: vi.fn(async () => ({ ok: true })),
-  rateLimitHeaders: vi.fn(() => ({})),
-}));
-
-vi.mock("@/lib/storage/submit-idempotency-store", () => ({
-  getIdempotencyRecord: vi.fn(),
-  hashSignedXdr: vi.fn(() => "hash"),
-  maybeRunCleanup: vi.fn(),
-  putIdempotencyRecord: vi.fn(),
-}));
-
-vi.mock("@/lib/storage/user-wallet-store", () => ({
+const storeMocks = vi.hoisted(() => ({
+  getAuditEntryById: vi.fn(),
   getUserWallet: vi.fn(),
 }));
 
-vi.mock("@/lib/storage/audit-store", () => ({ getAuditEntryById: vi.fn(async () => ({ id: "decision-1" })) }));
-vi.mock("@/lib/stellar/verify-payment-quote", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/stellar/verify-payment-quote")>(),
-  isPaymentDecisionCurrent: vi.fn(() => true),
-}));
-vi.mock("@/lib/stellar/payment-build-authorization", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/stellar/payment-build-authorization")>(),
-  verifyBuildAuthorization: vi.fn(() => true),
-}));
+vi.mock("@stellar/stellar-sdk", async () => {
+  const actual = await vi.importActual<typeof import("@stellar/stellar-sdk")>(
+    "@stellar/stellar-sdk",
+  );
 
-vi.mock("@/lib/validation/schemas", () => ({
-  stellarSubmitSignedRequestSchema: {
-    safeParse: vi.fn(),
-  },
-}));
+  class MockServer {
+    submitTransaction(tx: unknown) {
+      return horizonMocks.submitTransaction(tx);
+    }
+  }
 
-vi.mock("@/lib/utils/horizonErrors", () => ({
-  normalizeHorizonError: vi.fn(() => "unknown"),
-}));
-
-vi.mock("@/lib/stellar/network-config", () => ({
-  assertStellarNetworkConfig: () => ({
-    networkPassphrase: Networks.TESTNET,
-    horizonUrl: "https://horizon-testnet.stellar.org",
-  }),
-  getStellarHorizonUrl: () => "https://horizon-testnet.stellar.org",
-}));
-
-vi.mock("@/lib/stellar/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/stellar/client")>();
-  return {
-    ...actual,
-    submitSignedTransactionXdr: vi.fn(async () => ({
-      hash: "deadbeef",
-      status: "submitted",
-      ledger: 1,
-      resultXdr: "",
-    })),
-  };
+  return { ...actual, Horizon: { ...actual.Horizon, Server: MockServer } };
 });
 
-import { requireAuth } from "@/lib/auth/require-auth";
-import { readJsonBody } from "@/lib/http/read-json-body";
-import { buildDecisionReceipt } from "@/lib/stellar/verify-payment-quote";
-import { getUserWallet } from "@/lib/storage/user-wallet-store";
-import { stellarSubmitSignedRequestSchema } from "@/lib/validation/schemas";
+vi.mock("@/lib/storage/audit-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage/audit-store")>()),
+  getAuditEntryById: storeMocks.getAuditEntryById,
+}));
 
-function buildSignedXdr(
-  signerKp: Keypair,
-  sourcePublicKey: string,
-  destinationPublicKey = Keypair.random().publicKey(),
-  amount = "1",
-  memo = "approved-memo",
-) {
-  const account = new Account(sourcePublicKey, "1");
-  const tx = new TransactionBuilder(account, {
-    fee: "100",
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      Operation.payment({
-        destination: destinationPublicKey,
-        asset: Asset.native(),
-        amount,
-      }),
-    )
-    .addMemo(memo ? Memo.text(memo) : undefined)
-    .setTimeout(180)
-    .build();
-  tx.sign(signerKp);
-  return tx.toXDR();
+vi.mock("@/lib/storage/user-wallet-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage/user-wallet-store")>()),
+  getUserWallet: storeMocks.getUserWallet,
+}));
+
+import { Keypair } from "@stellar/stellar-sdk";
+import { NextRequest } from "next/server";
+
+import { POST } from "@/app/api/stellar/submit-signed/route";
+import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
+import { getStellarSubmitResultCounts, resetMetrics } from "@/lib/observability/metrics";
+import { resetRateLimitStore } from "@/lib/security/rate-limit";
+import { resetSubmitIdempotencyState } from "@/lib/storage/submit-idempotency-store";
+
+import {
+  makeAuthorizedSubmission,
+  type AuthorizedSubmission,
+  type AuthorizedSubmissionOptions,
+} from "./test-fixtures";
+
+const USER_ID = "submit-signed-route-user";
+const txHash = "c".repeat(64);
+const wallet = Keypair.random();
+
+function sessionCookie(publicKey = wallet.publicKey(), role: "signer" | "operator" = "signer") {
+  const token = createSessionToken({
+    email: "submit-signed@fortexa.local",
+    role,
+    userId: USER_ID,
+    publicKey,
+    expiresInSeconds: 300,
+  });
+  return `${AUTH_COOKIE_KEY}=${token}`;
 }
 
-function buildRequest(body: unknown) {
+function submit(
+  body: unknown,
+  headers: Record<string, string> = {},
+  rawBody?: string,
+) {
   return new NextRequest("http://localhost/api/stellar/submit-signed", {
     method: "POST",
-    body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
+    headers: { "content-type": "application/json", cookie: sessionCookie(), ...headers },
+    body: rawBody ?? JSON.stringify(body),
   });
 }
 
-function makeDecisionReceipt(
-  destination: string,
-  amount = "1",
-  memo = "approved-memo",
-) {
-  return buildDecisionReceipt({
-    destination,
-    amountXLM: amount,
-    asset: "native",
-    memo,
-    network: "testnet",
-  });
+function authorized(
+  overrides: Partial<Omit<AuthorizedSubmissionOptions, "userId" | "signer">> = {},
+): AuthorizedSubmission {
+  return makeAuthorizedSubmission({ userId: USER_ID, signer: wallet, ...overrides });
 }
 
-beforeEach(() => {
+/** Serves `submission` as the decision the server stored for this user. */
+function storeDecision(submission: AuthorizedSubmission) {
+  storeMocks.getAuditEntryById.mockImplementation(async (userId: string, id: string) =>
+    userId === USER_ID && id === submission.auditEntry.id ? submission.auditEntry : undefined,
+  );
+}
+
+beforeEach(async () => {
   vi.clearAllMocks();
-  vi.mocked(requireAuth).mockImplementation(() => ({
-    ok: true,
-    session: { userId: "user-1", publicKey: globalThis.MOCK_SESSION_PUBLIC_KEY || "GCDEFAULTTESTWALLET123" },
-  } as ReturnType<typeof requireAuth>));
+  resetMetrics();
+  await resetRateLimitStore();
+  await resetSubmitIdempotencyState(USER_ID);
+  horizonMocks.submitTransaction.mockResolvedValue({
+    hash: txHash,
+    ledger: 42,
+    successful: true,
+    result_xdr: "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA=",
+  });
+  storeMocks.getUserWallet.mockResolvedValue({
+    userId: USER_ID,
+    publicKey: wallet.publicKey(),
+    source: "external",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
 });
 
-describe("POST /api/stellar/submit-signed - source wallet verification", () => {
-  it("accepts a submission whose XDR source matches the session wallet and the decision receipt", async () => {
-    const walletKp = Keypair.random();
-    globalThis.MOCK_SESSION_PUBLIC_KEY = walletKp.publicKey();
-    const signedXdr = buildSignedXdr(walletKp, walletKp.publicKey());
+afterAll(() => {
+  rmSync(storeDir, { recursive: true, force: true });
+});
 
-    vi.mocked(getUserWallet).mockResolvedValue({
-      userId: "user-1",
-      publicKey: walletKp.publicKey(),
-      source: "external",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    vi.mocked(readJsonBody).mockResolvedValue({
-      ok: true,
-      data: { signedXdr, decisionReceipt },
-    });
-    vi.mocked(stellarSubmitSignedRequestSchema.safeParse).mockReturnValue({
-      success: true,
-      data: { signedXdr, decisionReceipt },
-    } as ReturnType<typeof stellarSubmitSignedRequestSchema.safeParse>);
+describe("POST /api/stellar/submit-signed - console request contract", () => {
+  it("accepts exactly what the console sends, with no decisionReceipt, and submits once", async () => {
+    const submission = authorized();
+    storeDecision(submission);
 
-    const response = await POST(buildRequest({ signedXdr, decisionReceipt }));
+    // The console's body: signedXdr + the three build-response fields only.
+    expect(Object.keys(submission.body).sort()).toEqual(
+      ["buildAuthorization", "decisionId", "quoteExpiresAt", "signedXdr"].sort(),
+    );
+
+    const response = await POST(submit(submission.body));
     const body = await response.json();
 
-    expect(requireAuth).toHaveBeenCalledWith(expect.any(NextRequest), { allowedRoles: ["signer"] });
     expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
+    expect(body).toMatchObject({
+      ok: true,
+      userId: USER_ID,
+      transactionHash: txHash,
+      payment: { mode: "real", hash: txHash },
+    });
+    expect(body.explorerUrl).toContain(txHash);
+    expect(horizonMocks.submitTransaction).toHaveBeenCalledTimes(1);
+    expect(getStellarSubmitResultCounts().get("success")).toBe(1);
   });
 
-  it("rejects a submission whose signed XDR disagrees with the bound decision receipt", async () => {
-    const walletKp = Keypair.random();
-    const authorizedDestination = Keypair.random().publicKey();
-    const swappedDestination = Keypair.random().publicKey();
-    const signedXdr = buildSignedXdr(
-      walletKp,
-      walletKp.publicKey(),
-      swappedDestination,
-      "1",
-      "approved-memo",
-    );
-    const decisionReceipt = makeDecisionReceipt(
-      authorizedDestination,
-      "1",
-      "approved-memo",
-    );
+  it("still accepts the build response's decisionReceipt echoed back unchanged", async () => {
+    const submission = authorized();
+    storeDecision(submission);
 
-    vi.mocked(getUserWallet).mockResolvedValue({
-      userId: "user-1",
-      publicKey: walletKp.publicKey(),
-      source: "external",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    vi.mocked(readJsonBody).mockResolvedValue({
-      ok: true,
-      data: { signedXdr, decisionReceipt },
-    });
-    vi.mocked(stellarSubmitSignedRequestSchema.safeParse).mockReturnValue({
-      success: true,
-      data: { signedXdr, decisionReceipt },
-    } as ReturnType<typeof stellarSubmitSignedRequestSchema.safeParse>);
+    // `build-payment` returns the stored quote as `decisionReceipt`, including
+    // `expiresAt` and (for decisions made through /api/decision) `amountStroops`.
+    const decisionReceipt = { ...submission.quote, amountStroops: "10000000" };
+    const response = await POST(submit({ ...submission.body, decisionReceipt }));
 
-    const response = await POST(buildRequest({ signedXdr, decisionReceipt }));
+    expect(response.status).toBe(200);
+    expect(horizonMocks.submitTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a decisionReceipt that disagrees with the quote the server stored", async () => {
+    const submission = authorized();
+    storeDecision(submission);
+
+    const forged = {
+      ...submission.quote,
+      destination: Keypair.random().publicKey(),
+      receiptHash: undefined,
+    };
+    const response = await POST(submit({ ...submission.body, decisionReceipt: forged }));
     const body = await response.json();
 
     expect(response.status).toBe(403);
-    expect(body.error).toMatch(
-      /does not match the authorized payment decision/i,
-    );
+    expect(body.field).toBe("destination");
+    expect(body.error).toMatch(/does not match the authorized payment decision/i);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
   });
 
-  it("rejects a submission whose XDR source does not match the session wallet", async () => {
-    const sessionWalletKp = Keypair.random();
-    const otherKp = Keypair.random();
-    const destination = Keypair.random().publicKey();
-    const signedXdr = buildSignedXdr(
-      otherKp,
-      otherKp.publicKey(),
-      destination,
-      "1",
-      "approved-memo",
-    );
+  it("rejects a decisionReceipt whose hash was tampered with", async () => {
+    const submission = authorized();
+    storeDecision(submission);
 
-    vi.mocked(getUserWallet).mockResolvedValue({
-      userId: "user-1",
-      publicKey: sessionWalletKp.publicKey(),
-      source: "external",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    const decisionReceipt = makeDecisionReceipt(
-      destination,
-      "1",
-      "approved-memo",
-    );
-    vi.mocked(readJsonBody).mockResolvedValue({
-      ok: true,
-      data: { signedXdr, decisionReceipt },
-    });
-    vi.mocked(stellarSubmitSignedRequestSchema.safeParse).mockReturnValue({
-      success: true,
-      data: { signedXdr, decisionReceipt },
-    } as ReturnType<typeof stellarSubmitSignedRequestSchema.safeParse>);
-
-    const response = await POST(buildRequest({ signedXdr, decisionReceipt }));
-    const body = await response.json();
+    const tampered = { ...submission.quote, receiptHash: "f".repeat(64) };
+    const response = await POST(submit({ ...submission.body, decisionReceipt: tampered }));
 
     expect(response.status).toBe(403);
-    expect(body.error).toMatch(/does not match/i);
+    expect((await response.json()).error).toMatch(/corrupted or tampered/i);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
   });
 
-  it("rejects a signed payment when its decision does not allow execution", async () => {
-    const walletKp = Keypair.random();
-    const signedXdr = buildSignedXdr(walletKp, walletKp.publicKey());
-    vi.mocked(getUserWallet).mockResolvedValue({
-      userId: "user-1",
-      publicKey: walletKp.publicKey(),
-      source: "external",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    vi.mocked(readJsonBody).mockResolvedValue({
-      ok: true,
-      data: { signedXdr, auditEntryId: "00000000-0000-4000-8000-000000000000" },
-    });
-    vi.mocked(stellarSubmitSignedRequestSchema.safeParse).mockReturnValue({
-      success: true,
-      data: { signedXdr, auditEntryId: "00000000-0000-4000-8000-000000000000" },
-    } as ReturnType<typeof stellarSubmitSignedRequestSchema.safeParse>);
-    verifyQuoteMock.mockReturnValueOnce({
-      ok: false,
-      status: 403,
-      error: "Decision does not authorize payment execution.",
-    });
+  it("rejects a body that omits the build-response fields", async () => {
+    const submission = authorized();
+    storeDecision(submission);
 
-    const response = await POST(buildRequest({ signedXdr }));
-    expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({
-      error: "Decision does not authorize payment execution.",
-    });
+    for (const missing of ["decisionId", "quoteExpiresAt", "buildAuthorization"] as const) {
+      const { [missing]: _omitted, ...rest } = submission.body;
+      void _omitted;
+      const response = await POST(submit(rest));
+      const body = await response.json();
+
+      expect(response.status, missing).toBe(400);
+      expect(body.details?.fieldErrors ?? body.details, missing).toBeTruthy();
+    }
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed XDR with a 400", async () => {
-    const walletKp = Keypair.random();
-    globalThis.MOCK_SESSION_PUBLIC_KEY = walletKp.publicKey();
+  it("rejects an unknown field with the stable code and never submits", async () => {
+    const submission = authorized();
+    storeDecision(submission);
 
-    vi.mocked(getUserWallet).mockResolvedValue({
-      userId: "user-1",
-      publicKey: walletKp.publicKey(),
-      source: "external",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    const decisionReceipt = makeDecisionReceipt(
-      walletKp.publicKey(),
-      "1",
-      "approved-memo",
-    );
-    vi.mocked(readJsonBody).mockResolvedValue({
-      ok: true,
-      data: { signedXdr: "not-valid-xdr", decisionReceipt },
-    });
-    vi.mocked(stellarSubmitSignedRequestSchema.safeParse).mockReturnValue({
-      success: true,
-      data: { signedXdr: "not-valid-xdr", decisionReceipt },
-    } as ReturnType<typeof stellarSubmitSignedRequestSchema.safeParse>);
-
-    const response = await POST(
-      buildRequest({ signedXdr: "not-valid-xdr", decisionReceipt }),
-    );
+    const response = await POST(submit({ ...submission.body, destinaton: "typo" }));
     const body = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body.error).toMatch(/could not be decoded/i);
+    expect(body).toMatchObject({
+      code: "UNKNOWN_FIELDS",
+      unknownFields: ["destinaton"],
+    });
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
   });
 
-  it("rejects with 401 when there is no session wallet mapping", async () => {
-    vi.mocked(getUserWallet).mockResolvedValue(null);
-
-    const decisionReceipt = buildDecisionReceipt({
-      destination: Keypair.random().publicKey(),
-      amountXLM: "1",
-      asset: "native",
-      memo: "approved-memo",
-      network: "testnet",
-    });
-
+  it("rejects a non-JSON content type with 415 before reading anything", async () => {
+    const submission = authorized();
     const response = await POST(
-      buildRequest({ signedXdr: "anything", decisionReceipt }),
+      submit(submission.body, { "content-type": "text/plain" }),
     );
-    const body = await response.json();
 
-    expect(response.status).toBe(401);
-    expect(body.error).toMatch(/no session wallet mapping/i);
+    expect(response.status).toBe(415);
+    expect(await response.json()).toMatchObject({ code: "UNSUPPORTED_MEDIA_TYPE" });
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
   });
 });
 
-describe("POST /api/stellar/submit-signed authorization", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe("POST /api/stellar/submit-signed - server-side validation of the approved decision", () => {
+  it("rejects a transaction whose amount differs from the approved quote", async () => {
+    const submission = authorized({ amount: "1.0000000", transactionAmount: "999.0000000" });
+    storeDecision(submission);
+
+    const response = await POST(submit(submission.body));
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.field).toBe("amountStroops");
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a transaction whose destination differs from the approved quote", async () => {
+    const submission = authorized({ transactionDestination: Keypair.random().publicKey() });
+    storeDecision(submission);
+
+    const response = await POST(submit(submission.body));
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).field).toBe("destination");
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a build authorization issued for a different transaction", async () => {
+    const approved = authorized();
+    const other = authorized({ decisionId: approved.auditEntry.id });
+    storeDecision(approved);
+
+    const response = await POST(
+      submit({ ...approved.body, buildAuthorization: other.body.buildAuthorization }),
+    );
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toMatch(/does not match the authorized payment build/i);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects an expired quote", async () => {
+    const submission = authorized({ expiresInMs: -1_000 });
+    storeDecision(submission);
+
+    const response = await POST(submit(submission.body));
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toMatch(/no longer valid/i);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a decision that does not authorize execution", async () => {
+    const submission = authorized({ decision: "BLOCK" });
+    storeDecision(submission);
+
+    const response = await POST(submit(submission.body));
+
+    expect(response.status).toBe(403);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a decision id the server never issued for this user", async () => {
+    const submission = authorized();
+    storeMocks.getAuditEntryById.mockResolvedValue(undefined);
+
+    const response = await POST(submit(submission.body));
+
+    expect(response.status).toBe(403);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a quote expiry that differs from the one the server stored", async () => {
+    const submission = authorized();
+    storeDecision(submission);
+
+    const response = await POST(
+      submit({
+        ...submission.body,
+        quoteExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/stellar/submit-signed - wallet and session checks", () => {
+  it("rejects a transaction whose source account is not the session wallet", async () => {
+    const submission = authorized();
+    storeDecision(submission);
+    storeMocks.getUserWallet.mockResolvedValue({
+      userId: USER_ID,
+      publicKey: Keypair.random().publicKey(),
+      source: "external",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const response = await POST(submit(submission.body));
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toMatch(/source account does not match/i);
+    expect(getStellarSubmitResultCounts().get("source_wallet_mismatch")).toBe(1);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a transaction signed by someone other than the session wallet", async () => {
+    // Same source account, but the session belongs to a different key.
+    const submission = authorized();
+    storeDecision(submission);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/stellar/submit-signed", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: sessionCookie(Keypair.random().publicKey()),
+        },
+        body: JSON.stringify(submission.body),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed XDR with a 400", async () => {
+    const submission = authorized();
+    storeDecision(submission);
+
+    const response = await POST(
+      submit({ ...submission.body, signedXdr: "not-valid-xdr-but-long-enough" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/could not be decoded/i);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 when there is no session wallet mapping", async () => {
+    const submission = authorized();
+    storeDecision(submission);
+    storeMocks.getUserWallet.mockResolvedValue(null);
+
+    const response = await POST(submit(submission.body));
+
+    expect(response.status).toBe(401);
+    expect((await response.json()).error).toMatch(/no session wallet mapping/i);
   });
 
   it("returns 401 when unauthenticated", async () => {
-    vi.mocked(requireAuth).mockReturnValue({
-      ok: false,
-      response: new Response(
-        JSON.stringify({ error: "Authentication required." }),
-        {
-          status: 401,
-        },
-      ),
-    } as ReturnType<typeof requireAuth>);
-
-    const request = new NextRequest(
-      "http://localhost/api/stellar/submit-signed",
-      {
+    const submission = authorized();
+    const response = await POST(
+      new NextRequest("http://localhost/api/stellar/submit-signed", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ signedXdr: "AAAA" }),
-      },
+        body: JSON.stringify(submission.body),
+      }),
     );
 
-    const response = await POST(request);
     expect(response.status).toBe(401);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
   });
 
-  it("returns 403 for viewer role (operator-only route)", async () => {
-    vi.mocked(requireAuth).mockReturnValue({
-      ok: false,
-      response: new Response(JSON.stringify({ error: "Insufficient role." }), {
-        status: 403,
-      }),
-    } as ReturnType<typeof requireAuth>);
-
-    const request = new NextRequest(
-      "http://localhost/api/stellar/submit-signed",
-      {
+  it("returns 403 for an operator session (signer-only route)", async () => {
+    const submission = authorized();
+    const response = await POST(
+      new NextRequest("http://localhost/api/stellar/submit-signed", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ signedXdr: "AAAA" }),
-      },
+        headers: {
+          "content-type": "application/json",
+          cookie: sessionCookie(wallet.publicKey(), "operator"),
+        },
+        body: JSON.stringify(submission.body),
+      }),
     );
 
-    const response = await POST(request);
     expect(response.status).toBe(403);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/stellar/submit-signed - submission failures", () => {
+  it("returns a 500 with the Horizon result codes when the network rejects the transaction", async () => {
+    const submission = authorized();
+    storeDecision(submission);
+    const horizonError = Object.assign(new Error("Request failed with status code 400"), {
+      response: {
+        data: { extras: { result_codes: { transaction: "tx_bad_seq" } } },
+      },
+    });
+    horizonMocks.submitTransaction.mockRejectedValueOnce(horizonError);
+
+    const response = await POST(submit(submission.body));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.resultCode).toBe("tx_bad_seq");
+    expect(body.explanation).toMatch(/sequence number/i);
+    expect(getStellarSubmitResultCounts().get("horizon_failure")).toBe(1);
+  });
+
+  it("re-checks the decision right before submitting and refuses when it expired meanwhile", async () => {
+    const submission = authorized();
+    let calls = 0;
+    storeMocks.getAuditEntryById.mockImplementation(async () => {
+      calls += 1;
+      // Valid for the first read, expired by the pre-submit re-check.
+      return calls === 1
+        ? submission.auditEntry
+        : {
+            ...submission.auditEntry,
+            paymentQuote: { ...submission.quote, expiresAt: new Date(Date.now() - 1).toISOString() },
+          };
+    });
+
+    const response = await POST(
+      submit(submission.body, { "idempotency-key": "recheck-key-0001" }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(horizonMocks.submitTransaction).not.toHaveBeenCalled();
   });
 });

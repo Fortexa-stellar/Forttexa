@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { defaultPolicyConfig } from "@/lib/policy/engine";
 import { normalizePolicy } from "@/lib/storage/policy-store";
-import { migratePolicy } from "@/lib/policy/migrations";
+import { parseStoredPolicy } from "@/lib/policy/migrations";
 
 import emptyPolicy from "./__fixtures__/v0-empty-policy.json";
 import legacyMissingArrays from "./__fixtures__/v0-legacy-missing-arrays.json";
@@ -22,9 +22,9 @@ function load(fixture: Fixture) {
 function loadMigrated(fixture: Fixture) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { _fixtureNote, ...policy } = fixture;
-  const migrated = migratePolicy(policy);
+  const migrated = parseStoredPolicy(policy);
   if (!migrated.ok) {
-    throw new Error(`migration failed at version ${migrated.failedVersion}`);
+    throw new Error(`migration failed at version ${migrated.version}`);
   }
   return normalizePolicy(migrated.policy);
 }
@@ -133,25 +133,25 @@ describe("policy migration fixtures — normalizePolicy", () => {
 
   describe("migration chain — shared fixtures with the import component", () => {
     it("migrates a current-schema policy cleanly", () => {
-      const result = migratePolicy({ ...defaultPolicyConfig, version: 1 });
+      const result = parseStoredPolicy({ ...defaultPolicyConfig, schemaVersion: 1 });
       expect(result.ok).toBe(true);
     });
 
     it("rejects an unknown future version and reports the failing version", () => {
-      const result = migratePolicy({ ...defaultPolicyConfig, version: 999 });
+      const result = parseStoredPolicy({ ...defaultPolicyConfig, schemaVersion: 999 });
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.failedVersion).toBe(999);
+        expect(result.version).toBe(999);
       }
     });
 
     it("rejects a broken rule shape without producing a partial policy", () => {
-      const result = migratePolicy({ ...defaultPolicyConfig, version: 1, allowedDomains: "not-an-array" });
+      const result = parseStoredPolicy({ ...defaultPolicyConfig, schemaVersion: 1, allowedDomains: "not-an-array" });
       expect(result.ok).toBe(false);
     });
 
     it("rejects a migration that silently changes a rule type", () => {
-      const result = migratePolicy({ ...defaultPolicyConfig, version: 0, perTxCapXLM: "50" });
+      const result = parseStoredPolicy({ ...defaultPolicyConfig, schemaVersion: 1, perTxCapXLM: "50" });
       expect(result.ok).toBe(false);
     });
 

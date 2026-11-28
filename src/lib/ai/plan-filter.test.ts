@@ -54,6 +54,7 @@ beforeEach(() => {
     riskScore: 10,
     riskFindings: [],
     requiresManualApproval: false,
+    primaryRuleId: null,
   });
 });
 
@@ -82,6 +83,7 @@ describe("filterPlanAgainstLivePolicy", () => {
       riskScore: 90,
       riskFindings: [],
       requiresManualApproval: false,
+      primaryRuleId: null,
     });
 
     const outcome = await filterPlanAgainstLivePolicy({
@@ -103,6 +105,7 @@ describe("filterPlanAgainstLivePolicy", () => {
       riskScore: 80,
       riskFindings: [],
       requiresManualApproval: true,
+      primaryRuleId: null,
     });
 
     const outcome = await filterPlanAgainstLivePolicy({
@@ -123,6 +126,7 @@ describe("filterPlanAgainstLivePolicy", () => {
       riskScore: 90,
       riskFindings: [],
       requiresManualApproval: false,
+      primaryRuleId: null,
     });
 
     await filterPlanAgainstLivePolicy({
@@ -158,6 +162,7 @@ describe("filterPlanAgainstLivePolicy", () => {
       riskScore: 90,
       riskFindings: [],
       requiresManualApproval: false,
+      primaryRuleId: null,
     });
 
     const secret = "SIGNED_XDR_PAYLOAD_AAAA";

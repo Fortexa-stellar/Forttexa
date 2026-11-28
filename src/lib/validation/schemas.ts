@@ -77,17 +77,22 @@ export const stellarPublicKeySchema = z
   .min(56)
   .max(56);
 
-const paymentQuoteInputSchema = z.object({
+const paymentQuoteInputSchema = z.strictObject({
   destination: stellarPublicKeySchema,
   memo: withMemoByteLimit(z.string()).optional(),
   network: z.enum(["testnet"]).default("testnet"),
   asset: z.enum(["native"]).default("native"),
 });
 
+/**
+ * Strict: unrecognized fields (at the top level or inside `action` /
+ * `paymentQuoteInput`) are rejected rather than silently dropped, so a
+ * misspelled field can never be ignored. See `buildUnknownFieldsBody`.
+ */
 export const decisionRequestSchema = z
-  .object({
+  .strictObject({
     scenarioId: z.string().min(1).max(120).optional(),
-    action: agentActionSchema.optional(),
+    action: strictAgentActionSchema.optional(),
     approvedByHuman: z.boolean().optional(),
     paymentQuoteInput: paymentQuoteInputSchema.optional(),
   })
@@ -96,11 +101,10 @@ export const decisionRequestSchema = z
       Boolean(
         data.scenarioId ||
         data.action ||
-        data.paymentQuote ||
         data.paymentQuoteInput,
       ),
     {
-      message: "Either scenarioId, action, or paymentQuote must be provided.",
+      message: "Either scenarioId, action, or paymentQuoteInput must be provided.",
       path: ["scenarioId"],
     },
   );
@@ -130,7 +134,15 @@ export const stellarBuildPaymentRequestSchema = z.object({
   requestTimestampMs: z.number().finite().optional(),
 });
 
-const decisionReceiptSchema = z.object({
+/**
+ * Strict variant used by `POST /api/stellar/build-payment`: unrecognized
+ * fields are rejected instead of silently dropped. (`/api/stellar/pay` keeps
+ * the lenient schema above.)
+ */
+export const strictStellarBuildPaymentRequestSchema =
+  stellarBuildPaymentRequestSchema.strict();
+
+const decisionReceiptSchema = z.strictObject({
   destination: stellarPublicKeySchema,
   amountXLM: z.string().refine(isValidPaymentAmountString, {
     message: PAYMENT_AMOUNT_ERROR,
@@ -142,11 +154,32 @@ const decisionReceiptSchema = z.object({
     .string()
     .regex(/^[a-f0-9]{64}$/i)
     .optional(),
+  /**
+   * Fields the build response's `decisionReceipt` also carries, so a client
+   * that echoes the receipt back unchanged is not rejected as having unknown
+   * fields. The server never trusts them: the stored quote is the authority.
+   */
+  expiresAt: z.string().min(1).max(64).optional(),
+  amountStroops: z.string().regex(/^\d+$/).max(32).optional(),
 });
 
-export const stellarSubmitSignedRequestSchema = z.object({
+/**
+ * Strict: unrecognized fields (including inside `decisionReceipt`) are
+ * rejected instead of silently dropped.
+ *
+ * `decisionId`, `quoteExpiresAt` and `buildAuthorization` are the build
+ * response fields the README documents alongside `signedXdr`, and they are
+ * what the console submits. The server uses them to reload the approved
+ * decision and validate the signed transaction against the quote it stored, so
+ * they are required. `decisionReceipt` is optional: when present it is only
+ * cross-checked against that stored quote, never trusted on its own.
+ */
+export const stellarSubmitSignedRequestSchema = z.strictObject({
   signedXdr: z.string().min(20).max(120000),
-  decisionReceipt: decisionReceiptSchema,
+  decisionId: z.string().min(1).max(128),
+  quoteExpiresAt: z.string().min(1).max(64),
+  buildAuthorization: z.string().min(1).max(2048),
+  decisionReceipt: decisionReceiptSchema.optional(),
   idempotencyKey: idempotencyKeySchema.optional(),
 });
 

@@ -104,6 +104,13 @@ export interface DecisionResult {
   analyzerStatus?: AnalyzerStatus;
   /** Reason code of the security check (analyzer or blocklist) that denied the action. */
   reasonCode?: string;
+  /**
+   * Machine-readable rule id that fired (first policy trigger code, else first
+   * security finding code, else null). Both /api/decision and
+   * /api/policy/simulate return this so operators compare rule ids, not
+   * free-text explanations.
+   */
+  primaryRuleId: string | null;
 }
 
 export interface Scenario {
@@ -128,6 +135,8 @@ export interface PaymentQuote {
   memo: string;
   network: StellarNetworkId;
   receiptHash?: string;
+  /** ISO-8601 instant after which the quote can no longer authorize a spend. */
+  expiresAt?: string;
 }
 
 export interface AuditEntry {

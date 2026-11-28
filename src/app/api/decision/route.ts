@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
-import { decisionAmountStroops, evaluateDecision } from "@/lib/decision/engine";
+import {
+  buildPaymentComparisonFromQuoteInput,
+  canPassDecisionGate,
+  decisionAmountStroops,
+  evaluateDecision,
+} from "@/lib/decision/engine";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import {
   getRequestLogContext,
@@ -15,6 +20,7 @@ import { readinessBlockResponse } from "@/lib/readiness/guard";
 import { recordDecisionOutcome } from "@/lib/observability/metrics";
 import { redactSensitiveFields } from "@/lib/observability/redact";
 import { demoScenarios } from "@/lib/scenarios/seed";
+import { enforceRequestGate, gateErrorHeaders } from "@/lib/security/enforcement-gate";
 import { rateLimitHeaders } from "@/lib/security/rate-limit";
 import {
   appendAuditEntry,
@@ -25,7 +31,9 @@ import { getUserWallet } from "@/lib/storage/user-wallet-store";
 import { getPolicyConfig } from "@/lib/storage/policy-store";
 import { buildPaymentQuoteFromDecision } from "@/lib/stellar/verify-payment-quote";
 import type { AuditEntry } from "@/lib/types/domain";
+import { logValidationFailure } from "@/lib/validation/errors";
 import { decisionRequestSchema } from "@/lib/validation/schemas";
+import { buildUnknownFieldsBody } from "@/lib/validation/unknown-fields";
 
 export async function POST(request: NextRequest) {
   const startedAtMs = Date.now();
@@ -40,7 +48,8 @@ export async function POST(request: NextRequest) {
 
   // Read the body before consuming the rate budget so the gate can check the
   // requested destination against the blocklist in the same atomic step.
-  const rawBody = (await request.json().catch(() => ({}))) as unknown;
+  const bodyResult = await readJsonBody(request);
+  const rawBody: unknown = bodyResult.ok ? bodyResult.data : {};
 
   const rawDestination =
     typeof rawBody === "object" && rawBody !== null
@@ -65,8 +74,8 @@ export async function POST(request: NextRequest) {
     actionDomain: typeof rawActionDomain === "string" ? rawActionDomain : undefined,
   });
 
-  if (!rate.ok) {
-    logWarn("Decision route rate limited", context);
+  if (!gate.ok) {
+    logWarn("Decision route denied by enforcement gate", { ...context, code: gate.code });
     return respond(request, {
       route: "/api/decision",
       startedAtMs,
@@ -91,7 +100,29 @@ export async function POST(request: NextRequest) {
 
     const userId = auth.session.userId;
 
-    const rawBody = (await request.json().catch(() => ({}))) as unknown;
+    if (!(await canPassDecisionGate(userId))) {
+      logWarn("Decision route rejected revoked wallet", { ...context, userId });
+      return respond(request, {
+        route: "/api/decision",
+        startedAtMs,
+        status: 401,
+        body: { error: "Wallet access has been revoked." },
+        headers: rateLimitHeaders(rate),
+      });
+    }
+
+    // The body was already read above for the gate; a request body can only be read once.
+    if (!bodyResult.ok) {
+      logWarn("Decision route payload too large", { ...context, userId });
+      return respond(request, {
+        route: "/api/decision",
+        startedAtMs,
+        status: 413,
+        body: { error: bodyResult.error },
+        headers: rateLimitHeaders(rate),
+      });
+    }
+
     requestBody = rawBody;
     const parsedBody = decisionRequestSchema.safeParse(rawBody);
 
@@ -101,10 +132,11 @@ export async function POST(request: NextRequest) {
         route: "/api/decision",
         startedAtMs,
         status: 400,
-        body: {
-          error: "Invalid decision request body.",
-          details: parsedBody.error.flatten(),
-        },
+        body:
+          buildUnknownFieldsBody(parsedBody.error, "Invalid decision request body.") ?? {
+            error: "Invalid decision request body.",
+            details: parsedBody.error.flatten(),
+          },
         headers: rateLimitHeaders(rate),
       });
     }
@@ -135,7 +167,7 @@ export async function POST(request: NextRequest) {
     // Shared engine path (same function simulate uses): include asset,
     // amount, destination, and memo in the allow/deny comparison whenever the
     // caller supplies a payment quote. No transaction is built here.
-    const quoteInput = body.paymentQuote ?? body.paymentQuoteInput;
+    const quoteInput = body.paymentQuoteInput;
     const payment = quoteInput
       ? buildPaymentComparisonFromQuoteInput({
           destination: quoteInput.destination,
@@ -175,15 +207,16 @@ export async function POST(request: NextRequest) {
       ),
       ...(decision.reasonCode ? { reasonCode: decision.reasonCode } : {}),
       ...((finalDecision === "APPROVE" || finalDecision === "WARN") &&
-      (body.paymentQuote || body.paymentQuoteInput)
+      body.paymentQuoteInput
         ? {
             paymentQuote: (() => {
               const quote = buildPaymentQuoteFromDecision({
-                destination: (body.paymentQuote || body.paymentQuoteInput)!.destination,
+                destination: body.paymentQuoteInput.destination,
                 amountXLM: action.amountXLM,
-                memo: (body.paymentQuote || body.paymentQuoteInput)!.memo,
+                memo: body.paymentQuoteInput.memo,
                 actionId: action.id,
-                network: (body.paymentQuote || body.paymentQuoteInput)!.network,
+                network: body.paymentQuoteInput.network,
+                nowMs: decisionNowMs,
               });
               const amountStroops = decisionAmountStroops(action.amountXLM);
               return amountStroops ? { ...quote, amountStroops } : quote;
