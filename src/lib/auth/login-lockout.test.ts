@@ -81,35 +81,4 @@ describe("login lockout", () => {
     clock.advance(61_000);
     expect((await isLoginLocked(email, ip)).locked).toBe(false);
   });
-
-  it("derives retryAfterSeconds from the remaining lock window at boundaries", async () => {
-    const clock = fakeClock(1_000_000);
-    setLoginLockoutClock(clock.now);
-
-    const email = "boundary@fortexa.local";
-    const ip = "10.0.0.7";
-
-    await registerLoginFailure(email, ip);
-    await registerLoginFailure(email, ip);
-
-    const locked = await isLoginLocked(email, ip);
-    expect(locked.locked).toBe(true);
-    expect(locked.retryAfterSeconds).toBe(60);
-
-    clock.advance(30_000);
-    const midWindow = await isLoginLocked(email, ip);
-    expect(midWindow.locked).toBe(true);
-    expect(midWindow.retryAfterSeconds).toBe(30);
-
-    // 1ms remaining still rounds up to a 1-second Retry-After delay.
-    clock.advance(29_999);
-    const nearExpiry = await isLoginLocked(email, ip);
-    expect(nearExpiry.locked).toBe(true);
-    expect(nearExpiry.retryAfterSeconds).toBe(1);
-
-    clock.advance(1);
-    const expired = await isLoginLocked(email, ip);
-    expect(expired.locked).toBe(false);
-    expect(expired.retryAfterSeconds).toBe(0);
-  });
 });

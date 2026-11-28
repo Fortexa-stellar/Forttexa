@@ -24,19 +24,16 @@ export async function POST(request: NextRequest) {
   const sessionWallet = auth.session.publicKey;
 
   if (sessionWallet) {
-    const lockState = await isLoginLocked(sessionWallet, clientIp);
+    const lockState = await isLoginLocked(`wallet:${sessionWallet}`, clientIp);
     if (lockState.locked) {
       logWarn("Auth refresh blocked by lockout", { ...context, wallet: sessionWallet, ip: clientIp });
-      const retryAfterSeconds = Math.max(1, lockState.retryAfterSeconds);
       return jsonWithRequestContext(request, {
         route: "/api/auth/refresh",
         startedAtMs,
         status: 401,
-        body: {
-          error: "Account is temporarily locked. Refresh token invalid.",
-          retryAfterSeconds,
-        },
-        headers: { "Retry-After": String(retryAfterSeconds) },
+        body: { error: "Account is temporarily locked. Refresh token invalid." },
+        headers: { "Retry-After": String(lockState.retryAfterSeconds) },
+        noStore: true,
       });
     }
   }

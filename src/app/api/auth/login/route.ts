@@ -1,3 +1,4 @@
+import { readJsonBody } from "@/lib/http/read-json-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 
@@ -39,13 +40,6 @@ function lockedResponse(retryAfterSeconds: number) {
   return {
     error: LOCKED_ERROR,
     retryAfterSeconds: Math.max(1, retryAfterSeconds),
-  };
-}
-
-function lockoutHeaders(rate: ReturnType<typeof rateLimitHeaders>, retryAfterSeconds: number) {
-  return {
-    ...rate,
-    "Retry-After": String(Math.max(1, retryAfterSeconds)),
   };
 }
 
@@ -109,7 +103,10 @@ export async function POST(request: NextRequest) {
         startedAtMs,
         status: 423,
         body: lockedResponse(lockState.retryAfterSeconds),
-        headers: lockoutHeaders(rateLimitHeaders(rate), lockState.retryAfterSeconds),
+        headers: {
+          ...rateLimitHeaders(rate),
+          "Retry-After": String(Math.max(1, lockState.retryAfterSeconds)),
+        },
       });
     }
 
@@ -129,56 +126,35 @@ export async function POST(request: NextRequest) {
         code: challengeResult.code,
       });
 
-      if (failure?.justLocked) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((failure.lockedUntilMs - Date.now()) / 1000));
-        return respond(request, {
-          route: "/api/auth/login",
-          startedAtMs,
-          status: 423,
-          body: lockedResponse(retryAfterSeconds),
-          headers: lockoutHeaders(rateLimitHeaders(rate), retryAfterSeconds),
-        });
-      }
-
       return respond(request, {
         route: "/api/auth/login",
         startedAtMs,
         status: challengeResult.code === "invalid_signature" ? 401 : 400,
-        body: {
-          error: challengeErrorMessage(challengeResult.code),
-          code: challengeResult.code,
+        body: { error: challengeErrorMessage(challengeResult.code) },
+        headers: {
+          ...rateLimitHeaders(rate),
+          ...(failure?.justLocked ? { "Retry-After": String(failure.retryAfterSeconds) } : {}),
         },
-        headers: rateLimitHeaders(rate),
       });
     }
 
     const roles = resolveRolesByWallet(normalizedWallet);
+    const role = roles.includes("operator") ? "operator" : roles[0];
 
-    if (roles.length === 0) {
+    if (!role) {
       const failure = await registerLoginFailure(userId, clientIp);
       logWarn("Auth login unknown wallet", { ...context, wallet: normalizedWallet });
-
-      if (failure.justLocked) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((failure.lockedUntilMs - Date.now()) / 1000));
-        return respond(request, {
-          route: "/api/auth/login",
-          startedAtMs,
-          status: 423,
-          body: lockedResponse(retryAfterSeconds),
-          headers: lockoutHeaders(rateLimitHeaders(rate), retryAfterSeconds),
-        });
-      }
-
       return respond(request, {
         route: "/api/auth/login",
         startedAtMs,
         status: 401,
         body: { error: "Wallet is not authorized." },
-        headers: rateLimitHeaders(rate),
+        headers: {
+          ...rateLimitHeaders(rate),
+          ...(failure?.justLocked ? { "Retry-After": String(failure.retryAfterSeconds) } : {}),
+        },
       });
     }
-
-    const role = roles.includes("operator") ? "operator" : roles[0];
 
     await upsertUserWallet(userId, {
       publicKey: normalizedWallet,
@@ -189,7 +165,9 @@ export async function POST(request: NextRequest) {
     const session = startSession({
       email: `wallet:${normalizedWallet}`,
       role,
+      roles,
       userId,
+      publicKey: normalizedWallet,
     });
 
     const response = respond(request, {

@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { DuplicateRuleError, validateNoDuplicateRules } from "@/lib/policy/engine";
 import { policyConfigSchema } from "@/lib/validation/schemas";
+import { securityHeadersForRequest } from "@/lib/security/headers";
 
 /**
  * POST /api/policy/validate
@@ -12,7 +13,7 @@ import { policyConfigSchema } from "@/lib/validation/schemas";
  * Body: { policy: unknown }
  * Response: { valid: boolean; data?: unknown; errors?: string[] }
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { policy } = body;
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
           valid: false,
           errors: ["No policy data provided"],
         },
-        { status: 400 }
+        { status: 400, headers: securityHeadersForRequest(request) }
       );
     }
 
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
           valid: false,
           errors: errors.map((e) => `${e.path}: ${e.message}`),
         },
-        { status: 400 }
+        { status: 400, headers: securityHeadersForRequest(request) }
       );
     }
 
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
             field: error.field,
             duplicateValue: error.value,
           },
-          { status: 422 }
+          { status: 422, headers: securityHeadersForRequest(request) }
         );
       }
       throw error;
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
         valid: true,
         data: result.data,
       },
-      { status: 200 }
+      { status: 200, headers: securityHeadersForRequest(request) }
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
         valid: false,
         errors: [message],
       },
-      { status: 500 }
+      { status: 500, headers: securityHeadersForRequest(request) }
     );
   }
 }

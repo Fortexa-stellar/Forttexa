@@ -117,25 +117,13 @@ export async function consumeRateLimit(request: NextRequest, config: BucketConfi
   };
 }
 
-/**
- * Standard rate-limit response headers.
- *
- * `Retry-After` is only set when the caller must wait (RFC 9110 delay-seconds).
- * Successful responses keep the X-RateLimit-* counters but omit Retry-After so
- * clients do not treat a zero delay as a throttle signal.
- */
 export function rateLimitHeaders(result: RateLimitResult) {
-  const headers: Record<string, string> = {
+  return {
     "X-RateLimit-Limit": String(result.limit),
     "X-RateLimit-Remaining": String(result.remaining),
     "X-RateLimit-Reset": String(Math.floor(result.resetAt / 1000)),
+    "Retry-After": String(result.retryAfterSeconds),
   };
-
-  if (result.retryAfterSeconds > 0) {
-    headers["Retry-After"] = String(result.retryAfterSeconds);
-  }
-
-  return headers;
 }
 
 export async function resetRateLimitStore() {

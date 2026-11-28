@@ -9,6 +9,7 @@ import {
 } from "@stellar/stellar-sdk";
 
 import type { StellarPaymentRequest } from "@/lib/types/domain";
+import { assertMemoWithinByteLimit } from "@/lib/stellar/memo";
 import { assertStellarNetworkConfig, getStellarHorizonUrl } from "@/lib/stellar/network-config";
 
 export function getHorizonServer() {
@@ -24,6 +25,11 @@ export async function getNativeBalance(publicKey: string) {
 }
 
 export async function buildUnsignedPaymentTransaction(request: StellarPaymentRequest, sourcePublicKey: string) {
+  // Refuse an oversized memo before any network call or XDR work, so the failure
+  // is a validation error and not a late SDK exception.
+  if (request.memo !== undefined) {
+    assertMemoWithinByteLimit(request.memo);
+  }
   const { networkPassphrase } = assertStellarNetworkConfig();
   const server = getHorizonServer();
   const sourceAccount = await server.loadAccount(sourcePublicKey);
@@ -39,7 +45,7 @@ export async function buildUnsignedPaymentTransaction(request: StellarPaymentReq
         amount: request.amountXLM,
       })
     )
-    .addMemo(Memo.text(request.memo?.slice(0, 28) ?? "Fortexa payment"))
+    .addMemo(Memo.text(request.memo ?? "Fortexa payment"))
     .setTimeout(180)
     .build();
 
