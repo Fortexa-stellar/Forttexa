@@ -4,10 +4,12 @@ import { requireAuth } from "@/lib/auth/require-auth";
 import { readJsonBody } from "@/lib/http/read-json-body";
 import { getProtectedPaymentFlowReadinessReport } from "@/lib/readiness/production";
 import { readinessBlockResponse } from "@/lib/readiness/guard";
+import { enforceRequestGate, gateErrorHeaders } from "@/lib/security/enforcement-gate";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
 import { securityHeadersForRequest } from "@/lib/security/headers";
 import { buildUnsignedPaymentTransaction } from "@/lib/stellar/client";
-import { verifyPaymentAgainstQuote } from "@/lib/stellar/verify-payment-quote";
+import { getQuoteExpiresAt, verifyPaymentAgainstQuote } from "@/lib/stellar/verify-payment-quote";
+import { createBuildAuthorization, getTransactionHash } from "@/lib/stellar/payment-build-authorization";
 import { paymentExceedsPerTxCap } from "@/lib/policy/engine";
 import { getAuditEntryById } from "@/lib/storage/audit-store";
 import { getPolicyConfig } from "@/lib/storage/policy-store";
@@ -22,6 +24,13 @@ export async function POST(request: NextRequest) {
   // Read the body first so the gate can blocklist-check the destination in
   // the same atomic step as the rate-limit consumption (issue #202).
   const bodyResult = await readJsonBody(request);
+
+  if (!bodyResult.ok) {
+    return NextResponse.json(
+      { error: bodyResult.error, code: "PAYLOAD_TOO_LARGE" },
+      { status: 413, headers: securityHeadersForRequest(request) },
+    );
+  }
 
   let gateDestination: string | undefined;
   if (bodyResult.ok) {
@@ -38,8 +47,8 @@ export async function POST(request: NextRequest) {
 
   if (!gate.ok) {
     return NextResponse.json(
-      { error: "Rate limit exceeded for payment build endpoint." },
-      { status: 429, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } },
+      { error: "Rate limit exceeded for payment build endpoint.", code: gate.code },
+      { status: gate.status, headers: { ...gateErrorHeaders(gate), ...securityHeadersForRequest(request) } },
     );
   }
 
@@ -80,13 +89,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Session wallet mapping has expired." },
         { status: 401, headers: rateLimitHeaders(rate) },
-      );
-    }
-
-    if (!bodyResult.ok) {
-      return NextResponse.json(
-        { error: bodyResult.error },
-        { status: 413, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } },
       );
     }
 

@@ -70,11 +70,12 @@ describe("buildResponseSecurityHeaders", () => {
     expect(headers["Cross-Origin-Resource-Policy"]).toBe("same-origin");
   });
 
-  it("adds Cache-Control: no-store only when noStore is set", () => {
+  it("adds Cache-Control: no-store and Pragma: no-cache only when noStore is set", () => {
     expect(buildResponseSecurityHeaders("request-123")["Cache-Control"]).toBeUndefined();
-    expect(buildResponseSecurityHeaders("request-123", { noStore: true })["Cache-Control"]).toBe(
-      "no-store"
-    );
+    expect(buildResponseSecurityHeaders("request-123")["Pragma"]).toBeUndefined();
+    const headers = buildResponseSecurityHeaders("request-123", { noStore: true });
+    expect(headers["Cache-Control"]).toBe("no-store");
+    expect(headers["Pragma"]).toBe("no-cache");
   });
 });
 
@@ -94,6 +95,7 @@ describe("applySecurityHeaders", () => {
     applySecurityHeaders(response, "request-abc", { noStore: true });
 
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Pragma")).toBe("no-cache");
   });
 });
 

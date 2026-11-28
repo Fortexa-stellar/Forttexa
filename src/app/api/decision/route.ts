@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
-import { decisionAmountStroops, evaluateDecision } from "@/lib/decision/engine";
+import {
+  buildPaymentComparisonFromQuoteInput,
+  decisionAmountStroops,
+  evaluateDecision,
+} from "@/lib/decision/engine";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import {
   getRequestLogContext,
@@ -11,36 +15,53 @@ import {
   logInfo,
   logWarn,
 } from "@/lib/observability/logger";
-import { readinessBlockResponse } from "@/lib/readiness/guard";
 import { recordDecisionOutcome } from "@/lib/observability/metrics";
 import { redactSensitiveFields } from "@/lib/observability/redact";
 import { demoScenarios } from "@/lib/scenarios/seed";
+import { enforceRequestGate, gateErrorHeaders } from "@/lib/security/enforcement-gate";
 import { rateLimitHeaders } from "@/lib/security/rate-limit";
 import {
   appendAuditEntry,
   consumeUsage,
   getDailyUsage,
 } from "@/lib/storage/audit-store";
-import { getUserWallet } from "@/lib/storage/user-wallet-store";
 import { getPolicyConfig } from "@/lib/storage/policy-store";
 import { buildPaymentQuoteFromDecision } from "@/lib/stellar/verify-payment-quote";
 import type { AuditEntry } from "@/lib/types/domain";
+import { logValidationFailure } from "@/lib/validation/errors";
 import { decisionRequestSchema } from "@/lib/validation/schemas";
 
 export async function POST(request: NextRequest) {
   const startedAtMs = Date.now();
   const context = getRequestLogContext(request, "/api/decision");
   let requestBody: unknown;
+  let requestBodyTooLarge = false;
   const respond: typeof jsonWithRequestContext = (incoming, input) =>
     jsonWithRequestContext(incoming, {
+      noStore: true,
       ...input,
       logExchange: true,
       requestBody,
+      requestBodyTooLarge,
     });
 
-  // Read the body before consuming the rate budget so the gate can check the
-  // requested destination against the blocklist in the same atomic step.
-  const rawBody = (await request.json().catch(() => ({}))) as unknown;
+  const bodyResult = await readJsonBody(request);
+  if (!bodyResult.ok) {
+    requestBodyTooLarge = true;
+    logWarn("Decision route payload too large", context);
+    return respond(request, {
+      route: "/api/decision",
+      startedAtMs,
+      status: 413,
+      body: {
+        error: bodyResult.error,
+        code: "PAYLOAD_TOO_LARGE",
+      },
+    });
+  }
+
+  const rawBody = bodyResult.data;
+  requestBody = rawBody;
 
   const rawDestination =
     typeof rawBody === "object" && rawBody !== null
@@ -65,8 +86,8 @@ export async function POST(request: NextRequest) {
     actionDomain: typeof rawActionDomain === "string" ? rawActionDomain : undefined,
   });
 
-  if (!rate.ok) {
-    logWarn("Decision route rate limited", context);
+  if (!gate.ok) {
+    logWarn("Decision route gate rejected", context);
     return respond(request, {
       route: "/api/decision",
       startedAtMs,
@@ -91,8 +112,6 @@ export async function POST(request: NextRequest) {
 
     const userId = auth.session.userId;
 
-    const rawBody = (await request.json().catch(() => ({}))) as unknown;
-    requestBody = rawBody;
     const parsedBody = decisionRequestSchema.safeParse(rawBody);
 
     if (!parsedBody.success) {

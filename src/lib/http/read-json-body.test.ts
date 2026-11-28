@@ -26,6 +26,26 @@ describe("readJsonBody", () => {
     expect(result).toEqual({ ok: true, data: { ok: true } });
   });
 
+  it("accepts exact-limit request body", async () => {
+    const exactBytes = 100;
+    const body = "a".repeat(exactBytes);
+    const result = await readJsonBody(requestWithBody(body), { maxBytes: exactBytes });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("returns 413 and PAYLOAD_TOO_LARGE for over-limit request body", async () => {
+    const maxBytes = 100;
+    const body = "a".repeat(maxBytes + 1);
+    const result = await readJsonBody(requestWithBody(body), { maxBytes });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(413);
+      expect(result.code).toBe("PAYLOAD_TOO_LARGE");
+    }
+  });
+
   it("returns 413 when Content-Length exceeds the limit", async () => {
     const result = await readJsonBody(
       requestWithBody("{}", DEFAULT_JSON_BODY_MAX_BYTES + 1),
@@ -35,6 +55,7 @@ describe("readJsonBody", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(413);
+      expect(result.code).toBe("PAYLOAD_TOO_LARGE");
     }
   });
 
@@ -45,6 +66,7 @@ describe("readJsonBody", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(413);
+      expect(result.code).toBe("PAYLOAD_TOO_LARGE");
     }
   });
 

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
 
   if (!auth.ok) {
     logWarn("Auth refresh unauthorized", context);
-    return applySecurityHeaders(auth.response, context.requestId ?? crypto.randomUUID());
+    return applySecurityHeaders(auth.response, context.requestId ?? crypto.randomUUID(), { noStore: true });
   }
 
   const clientIp = readClientIp(request.headers);
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
         startedAtMs,
         status: 401,
         body: { error: "Account is temporarily locked. Refresh token invalid." },
+        noStore: true,
       });
     }
   }
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest) {
       startedAtMs,
       status: 401,
       body: { error: "Session wallet mapping has expired or been revoked." },
+      noStore: true,
     });
     response.cookies.delete(AUTH_COOKIE_KEY);
     return response;

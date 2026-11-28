@@ -17,7 +17,7 @@ export function getJsonBodyMaxBytes(): number {
 
 export type ReadJsonBodyResult =
   | { ok: true; data: unknown }
-  | { ok: false; status: 413; error: string };
+  | { ok: false; status: 413; error: string; code: string };
 
 export async function readJsonBody(
   request: Request,
@@ -31,6 +31,7 @@ export async function readJsonBody(
       ok: false,
       status: 413,
       error: `Request body exceeds the ${maxBytes}-byte limit.`,
+      code: "PAYLOAD_TOO_LARGE",
     };
   }
 
