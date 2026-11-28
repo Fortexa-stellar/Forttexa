@@ -4,12 +4,14 @@ import { checkBlocklist, fetchBlocklist, getBlocklistHealth, resetBlocklistCache
 describe("blocklist health", () => {
   beforeEach(() => {
     delete process.env.FORTEXA_BLOCKLIST_URL;
+    delete process.env.FORTEXA_BLOCKLIST_TIMEOUT_MS;
     resetBlocklistCache();
     vi.restoreAllMocks();
   });
 
   afterEach(() => {
     delete process.env.FORTEXA_BLOCKLIST_URL;
+    delete process.env.FORTEXA_BLOCKLIST_TIMEOUT_MS;
     resetBlocklistCache();
   });
 
@@ -39,13 +41,14 @@ describe("blocklist health", () => {
 
   it("reports last error summary after a failed fetch", async () => {
     process.env.FORTEXA_BLOCKLIST_URL = "https://example.com/blocklist.json";
-    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("Network error"));
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("Network error: https://example.com/blocklist.json"));
 
-    await expect(fetchBlocklist()).rejects.toThrow("Network error");
+    await expect(fetchBlocklist()).rejects.toMatchObject({ code: "BLOCKLIST_FETCH_FAILED" });
 
     const health = getBlocklistHealth();
     expect(health.configured).toBe(true);
-    expect(health.lastError).toBe("Network error");
+    expect(health.lastError).toBe("BLOCKLIST_FETCH_FAILED");
+    expect(health.lastError).not.toContain("example.com");
     expect(health.domainCount).toBe(0);
   });
 
@@ -59,13 +62,13 @@ describe("blocklist health", () => {
 
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10 * 60 * 1000);
 
-    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("Timeout"));
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new DOMException("The operation timed out", "TimeoutError"));
 
-    await expect(fetchBlocklist()).rejects.toThrow("Timeout");
+    await expect(fetchBlocklist()).rejects.toMatchObject({ code: "BLOCKLIST_FETCH_TIMEOUT" });
 
     const health = getBlocklistHealth();
     expect(health.configured).toBe(true);
-    expect(health.lastError).toBe("Timeout");
+    expect(health.lastError).toBe("BLOCKLIST_FETCH_TIMEOUT");
     expect(health.domainCount).toBe(1);
     expect(health.lastRefreshAt).toBeTruthy();
   });
@@ -76,10 +79,10 @@ describe("blocklist health", () => {
       new Response("Service Unavailable", { status: 503 })
     );
 
-    await expect(fetchBlocklist()).rejects.toThrow("HTTP 503");
+    await expect(fetchBlocklist()).rejects.toMatchObject({ code: "BLOCKLIST_FETCH_FAILED" });
 
     const health = getBlocklistHealth();
-    expect(health.lastError).toBe("HTTP 503");
+    expect(health.lastError).toBe("BLOCKLIST_FETCH_FAILED");
   });
 
   it("rejects a feed response larger than 1 MiB", async () => {
@@ -88,8 +91,34 @@ describe("blocklist health", () => {
       new Response("x".repeat(1024 * 1024 + 1), { status: 200 }),
     );
 
-    await expect(fetchBlocklist()).rejects.toThrow("Blocklist response exceeds 1048576 bytes");
+    await expect(fetchBlocklist()).rejects.toMatchObject({ code: "BLOCKLIST_FETCH_FAILED" });
     expect(getBlocklistHealth().domainCount).toBe(0);
+  });
+
+  it("aborts a stalled fetch at the configured timeout", async () => {
+    process.env.FORTEXA_BLOCKLIST_URL = "https://example.com/blocklist.json";
+    process.env.FORTEXA_BLOCKLIST_TIMEOUT_MS = "100";
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      }),
+    );
+
+    await expect(fetchBlocklist()).rejects.toMatchObject({ code: "BLOCKLIST_FETCH_TIMEOUT" });
+    expect(getBlocklistHealth().lastError).toBe("BLOCKLIST_FETCH_TIMEOUT");
+  });
+
+  it("caps configured timeouts at thirty seconds", async () => {
+    process.env.FORTEXA_BLOCKLIST_URL = "https://example.com/blocklist.json";
+    process.env.FORTEXA_BLOCKLIST_TIMEOUT_MS = "999999";
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify(["bad.example"]), { status: 200 }),
+    );
+
+    await fetchBlocklist();
+
+    expect(timeoutSpy).toHaveBeenCalledWith(30000);
   });
 });
 
@@ -133,6 +162,7 @@ describe("production blocklist URL", () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     delete process.env.FORTEXA_BLOCKLIST_URL;
+    delete process.env.FORTEXA_BLOCKLIST_TIMEOUT_MS;
     resetBlocklistCache();
   });
 

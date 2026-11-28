@@ -10,6 +10,5 @@
   "allowedHours": {
     "start": 6,
     "end": 23
-  },
-  "memoRequiredDestinations": []
+  }
 }

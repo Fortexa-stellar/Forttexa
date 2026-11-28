@@ -8,8 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { PolicyConfig } from "@/lib/types/domain";
 import { exportPolicyDocument, parsePolicyImport, policyImportMatchesActive, type PolicyExport } from "@/lib/policy/import-export";
-import { generatePolicyDiff, groupDiffChanges } from "@/lib/validation/policy-diff";
-import { hasSensitiveField } from "@/lib/settings/save-safety";
+import { generatePolicyDiff, groupDiffChanges } from "@/lib/validation/diff";
 
 interface PolicyImportExportProps {
   currentPolicy: PolicyConfig | null;
@@ -23,12 +22,7 @@ type ImportState =
   | { status: "idle" }
   | { status: "validating"; content: string }
   | { status: "error"; error: string }
-  | {
-      status: "diff_preview";
-      document: PolicyExport;
-      activePolicy: PolicyConfig;
-      jsonContent: string;
-    };
+  | { status: "diff_preview"; document: PolicyExport; activePolicy: PolicyConfig };
 
 export function PolicyImportExport({
   currentPolicy,
@@ -119,7 +113,6 @@ export function PolicyImportExport({
           status: "diff_preview",
           document: result.document,
           activePolicy: active.policy,
-          jsonContent: content,
         });
       } catch (err) {
         setImportState({

@@ -10,8 +10,6 @@ export type AuthSession = {
   userId: string;
   email: string;
   role: AuthRole;
-  /** Additive roles a wallet is authorized for. */
-  roles?: AuthRole[];
   /**
    * Session id. Minted once at login and carried forward by refresh, so every
    * token generation of one login shares it. Logout revokes by this id.
@@ -65,7 +63,6 @@ function sign(payloadPart: string) {
 export function createSessionToken(input: {
   email: string;
   role: AuthRole;
-  roles?: AuthRole[];
   userId?: string;
   expiresInSeconds?: number;
   publicKey?: string;
@@ -77,7 +74,6 @@ export function createSessionToken(input: {
     userId: input.userId ?? randomUUID(),
     email: input.email,
     role: input.role,
-    roles: input.roles,
     sid: normalizeSessionId(input.sessionId) ?? randomUUID(),
     exp: now + (input.expiresInSeconds ?? DEFAULT_SESSION_TTL_SECONDS),
     publicKey: input.publicKey,
@@ -133,13 +129,11 @@ export function verifySessionToken(token: string, options?: VerifySessionTokenOp
       return null;
     }
 
-    if (
-      parsed.roles !== undefined &&
-      (!Array.isArray(parsed.roles) ||
-        parsed.roles.some(
-          (role) => role !== "operator" && role !== "signer" && role !== "viewer",
-        ))
-    ) {
+    if (parsed.roles !== undefined && (!Array.isArray(parsed.roles) || parsed.roles.some((role) => role !== "operator" && role !== "signer" && role !== "viewer"))) {
+      return null;
+    }
+
+    if (parsed.roles !== undefined && (!Array.isArray(parsed.roles) || parsed.roles.some((role) => role !== "operator" && role !== "signer" && role !== "viewer"))) {
       return null;
     }
 
@@ -152,7 +146,6 @@ export function verifySessionToken(token: string, options?: VerifySessionTokenOp
       userId: parsed.userId,
       email: parsed.email,
       role: parsed.role,
-      roles: parsed.roles as AuthRole[] | undefined,
       exp: parsed.exp,
       gen: normalizeGeneration(parsed.gen),
       sid,
@@ -177,25 +170,20 @@ export function verifySessionToken(token: string, options?: VerifySessionTokenOp
   }
 }
 
-export function getSessionFromRequest(
-  request: NextRequest,
-  options?: VerifySessionTokenOptions,
-) {
+export function getSessionFromRequest(request: NextRequest) {
   const token = request.cookies.get(AUTH_COOKIE_KEY)?.value;
   if (!token) {
     return null;
   }
 
-  return verifySessionToken(token, options);
+  return verifySessionToken(token);
 }
 
 export function startSession(input: {
   email: string;
   role: AuthRole;
-  roles?: AuthRole[];
   userId?: string;
   expiresInSeconds?: number;
-  publicKey?: string;
 }) {
   const userId = input.userId ?? randomUUID();
   const ttlSeconds = input.expiresInSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
@@ -204,8 +192,6 @@ export function startSession(input: {
   const token = createSessionToken({
     email: input.email,
     role: input.role,
-    roles: input.roles,
-    publicKey: input.publicKey,
     userId,
     expiresInSeconds: ttlSeconds,
     generation: 0,
@@ -237,8 +223,6 @@ export function rotateSessionToken(session: AuthSession) {
   const token = createSessionToken({
     email: session.email,
     role: session.role,
-    roles: session.roles,
-    publicKey: session.publicKey,
     userId: session.userId,
     generation: rotated.generation,
     sessionId: session.sid,

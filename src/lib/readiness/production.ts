@@ -152,7 +152,7 @@ export function checkProductionReadiness(
       getStellarHorizonUrl({
         ...env,
         STELLAR_HORIZON_URL: horizonUrl,
-      } as unknown as NodeJS.ProcessEnv)
+      } as NodeJS.ProcessEnv)
     );
 
     if (inferredNetwork === "testnet") {
@@ -318,7 +318,6 @@ export function runReadinessFixture(
     STELLAR_NETWORK_PASSPHRASE: STELLAR_PUBLIC_NETWORK_PASSPHRASE,
     FORTEXA_AUTH_SECRET: "fixture-secret-0123456789abcdefghijklmnop",
     FORTEXA_OPERATOR_WALLETS: "G" + "A".repeat(55),
-    FORTEXA_BLOCKLIST_URL: "https://blocklist.fortexa.invalid/feed.json",
     DATABASE_URL: "postgres://fixture.invalid/fortexa",
     REDIS_URL: "redis://fixture.invalid:6379",
   };

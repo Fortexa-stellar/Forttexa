@@ -9,6 +9,7 @@ import {
 } from "@stellar/stellar-sdk";
 
 import type { StellarPaymentRequest } from "@/lib/types/domain";
+import { assertMemoWithinByteLimit } from "@/lib/stellar/memo";
 import { assertStellarNetworkConfig, getStellarHorizonUrl } from "@/lib/stellar/network-config";
 
 export function getHorizonServer() {
@@ -24,6 +25,11 @@ export async function getNativeBalance(publicKey: string) {
 }
 
 export async function buildUnsignedPaymentTransaction(request: StellarPaymentRequest, sourcePublicKey: string) {
+  // Refuse an oversized memo before any network call or XDR work, so the failure
+  // is a validation error and not a late SDK exception.
+  if (request.memo !== undefined) {
+    assertMemoWithinByteLimit(request.memo);
+  }
   const { networkPassphrase } = assertStellarNetworkConfig();
   const server = getHorizonServer();
   const sourceAccount = await server.loadAccount(sourcePublicKey);
@@ -39,7 +45,7 @@ export async function buildUnsignedPaymentTransaction(request: StellarPaymentReq
         amount: request.amountXLM,
       })
     )
-    .addMemo(Memo.text(request.memo?.slice(0, 28) ?? "Fortexa payment"))
+    .addMemo(Memo.text(request.memo ?? "Fortexa payment"))
     .setTimeout(180)
     .build();
 
@@ -81,7 +87,6 @@ export function decodeSignedXdrSourceAccount(signedXdr: string): SignedXdrSource
     return { ok: false, reason: "malformed" };
   }
 
-  const isFeeBump = decoded instanceof FeeBumpTransaction;
   if (decoded instanceof FeeBumpTransaction) {
     decoded = decoded.innerTransaction;
   }
@@ -93,7 +98,7 @@ export function decodeSignedXdrSourceAccount(signedXdr: string): SignedXdrSource
         destination: operation.destination,
         amountXLM: operation.amount,
         asset: "native" as const,
-        memo: memoValue === undefined || memoValue === null
+        memo: memoValue === undefined
           ? undefined
           : typeof memoValue === "string"
             ? memoValue
@@ -104,46 +109,8 @@ export function decodeSignedXdrSourceAccount(signedXdr: string): SignedXdrSource
   return {
     ok: true,
     sourceAccount: decoded.source,
-    isFeeBump,
+    isFeeBump: false,
     payment,
-  };
-}
-
-export type SignedXdrDestinationResult =
-  | { ok: true; destination: string; isFeeBump: boolean }
-  | { ok: false; reason: "malformed" };
-
-/**
- * Decodes a signed transaction XDR and extracts the payment destination so a
- * blocklist gate can check it before submission. A transaction that moves no
- * funds has no destination to blocklist and reports an empty string.
- */
-export function decodeSignedXdrDestination(signedXdr: string): SignedXdrDestinationResult {
-  const { networkPassphrase } = assertStellarNetworkConfig();
-
-  let decoded: Transaction | FeeBumpTransaction;
-  try {
-    decoded = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
-  } catch {
-    return { ok: false, reason: "malformed" };
-  }
-
-  const isFeeBump = decoded instanceof FeeBumpTransaction;
-  const operations = (
-    isFeeBump
-      ? (decoded as FeeBumpTransaction).innerTransaction.operations
-      : (decoded as Transaction).operations
-  ) as Array<{ type: string; destination?: string }>;
-
-  const payment = operations.find(
-    (op) =>
-      op.type === "payment" && typeof op.destination === "string",
-  );
-
-  return {
-    ok: true,
-    destination: payment?.destination ?? "",
-    isFeeBump,
   };
 }
 

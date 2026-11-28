@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
   if (!(await checkBlocklist(publicKey)).allow) {
     return NextResponse.json(
       { error: "Wallet address is blocklisted." },
-      { status: 403 }
+      { status: 403, headers: securityHeadersForRequest(request) }
     );
   }
 

@@ -111,18 +111,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // A settings payload must never smuggle credentials into the policy store.
-    if (hasSensitiveField(bodyResult.data)) {
-      logWarn("Policy update rejected sensitive field", { ...context, userId: auth.session.userId });
-      return jsonWithRequestContext(request, {
-        route: "/api/policy",
-        startedAtMs,
-        status: 400,
-        body: { error: "Policy payload contains a sensitive field." },
-        headers: rateLimitHeaders(rate),
-      });
-    }
-
     if (typeof bodyResult.data === "object" && bodyResult.data !== null &&
         "format" in bodyResult.data) {
       const imported = parsePolicyImport(bodyResult.data);
@@ -160,17 +148,14 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      await updatePolicyConfig(imported.document.policy, auth.session.userId, {
+      const updated = await updatePolicyConfig(imported.document.policy, auth.session.userId, {
         expectedVersion: imported.document.version,
       });
       return jsonWithRequestContext(request, {
         route: "/api/policy",
         startedAtMs,
-        status: 200,
-        body: {
-          policy: imported.document.policy,
-          version: imported.document.version,
-        },
+        status: 400,
+        body: { error: "Policy payload contains a sensitive field." },
         headers: rateLimitHeaders(rate),
       });
     }

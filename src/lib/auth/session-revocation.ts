@@ -51,10 +51,7 @@ export async function isSessionRevoked(sessionId: string) {
  * not been revoked. Cookie presence, or even a valid signature, is not enough.
  */
 export async function getActiveSessionFromRequest(request: NextRequest): Promise<AuthSession | null> {
-  // A session id is revoked as a unit, so every generation minted under it is
-  // equally dead. Generation reuse is still rejected by verifySessionToken,
-  // which the proxy and refresh path call without this option.
-  const session = getSessionFromRequest(request, { allowStaleGeneration: true });
+  const session = getSessionFromRequest(request);
   if (!session) {
     return null;
   }

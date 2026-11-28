@@ -257,11 +257,11 @@ describe("generateAgentActionWithGroq — happy path", () => {
     const action = await generateAgentActionWithGroq(VALID_INPUT);
 
     expect(action.id).toBe("act-001");
-    expect(action.action.name).toBe("Research data fetch");
-    expect(action.action.kind).toBe("api_payment");
-    expect(action.action.domain).toBe("api.safe-research.ai");
-    expect(action.action.amountXLM).toBe(20);
-    expect(action.action.tool).toBe("research-pro");
+    expect(action.name).toBe("Research data fetch");
+    expect(action.kind).toBe("api_payment");
+    expect(action.domain).toBe("api.safe-research.ai");
+    expect(action.amountXLM).toBe(20);
+    expect(action.tool).toBe("research-pro");
   });
 
   it("accepts model output wrapped in a fenced JSON block", async () => {
@@ -269,7 +269,7 @@ describe("generateAgentActionWithGroq — happy path", () => {
     mockGroqResponse(fenced);
 
     const action = await generateAgentActionWithGroq(VALID_INPUT);
-    expect(action.action.kind).toBe("api_payment");
+    expect(action.kind).toBe("api_payment");
   });
 
   it("assigns a UUID when model omits the id field", async () => {

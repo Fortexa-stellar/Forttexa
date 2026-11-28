@@ -471,11 +471,26 @@ export async function getIdempotencyRecord(
 
 export async function getAllIdempotencyRecords(): Promise<SubmitIdempotencyRecord[]> {
   const db = await runWithDatabase("getAllIdempotencyRecords", async (pool) => {
-    const result = await pool.query<IdempotencyDbRow>(
-      `SELECT ${RECORD_COLUMNS} FROM fortexa_submit_idempotency`
+    const result = await pool.query<{
+      user_id: string;
+      idempotency_key: string;
+      xdr_hash: string;
+      result: unknown;
+      created_at: string;
+    }>(
+      `
+        SELECT user_id, idempotency_key, xdr_hash, result, created_at
+        FROM fortexa_submit_idempotency
+      `
     );
 
-    return result.rows.map(recordFromRow);
+    return result.rows.map((row) => ({
+      userId: row.user_id,
+      idempotencyKey: row.idempotency_key,
+      xdrHash: row.xdr_hash,
+      result: row.result,
+      createdAt: new Date(row.created_at).toISOString(),
+    }));
   });
 
   if (db.available) {
@@ -486,7 +501,7 @@ export async function getAllIdempotencyRecords(): Promise<SubmitIdempotencyRecor
   return Object.values(store.records);
 }
 
-export async function beginIdempotentSubmit(
+export async function putIdempotencyRecord(
   userId: string,
   idempotencyKey: string,
   requestHash: string,

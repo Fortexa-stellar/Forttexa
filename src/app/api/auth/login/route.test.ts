@@ -13,7 +13,6 @@ import {
 } from "@/lib/auth/login-lockout";
 import { POST as createChallenge } from "@/app/api/auth/challenge/route";
 import { POST as login } from "@/app/api/auth/login/route";
-import { buildSecurityHeaders } from "@/lib/security/headers";
 
 const AUTHORIZED_SECRET = "SAKICEVQLYWGSOJS4WW7HZJWAHZVEEBS527LHK5V4MLJALYKICQCJXMW";
 const AUTHORIZED_PUBLIC_KEY = "GBXFXNDLV4LSWA4VB7YIL5GBD7BVNR22SGBTDKMO2SBZZHDXSKZYCP7L";
@@ -121,7 +120,7 @@ describe("/api/auth/login challenge-signature flow", () => {
     const challenge = await issueChallenge(AUTHORIZED_PUBLIC_KEY);
     const signature = signSep53Message(AUTHORIZED_SECRET, challenge.message);
 
-    vi.advanceTimersByTime(61_000);
+    vi.advanceTimesBy(61_000);
 
     const response = await login(
       loginRequest({
@@ -285,7 +284,7 @@ describe("/api/auth/login challenge-signature flow", () => {
 
       process.env.FORTEXA_AUTH_SECRET = "login-route-test-secret";
       process.env.FORTEXA_OPERATOR_WALLETS = AUTHORIZED_PUBLIC_KEY;
-      process.env.FORTEXA_AUTH_MAX_ATTEMPTS = "2";
+      process.env.FORTEXA_AUTH_MAX_ATTEMPS = "2";
       process.env.FORTEXA_AUTH_LOCK_MINUTES = "1";
 
       const userId = `wallet:${AUTHORIZED_PUBLIC_KEY}`;

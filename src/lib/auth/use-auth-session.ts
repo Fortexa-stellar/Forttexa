@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { parseWalletKeyFromSessionUser } from "@/lib/auth/wallet-card-state";
+import { parseWalletKeyFromSessionUser } from "@/lib/auth/session-wallet";
 
 type SessionPayload = {
   authenticated?: boolean;

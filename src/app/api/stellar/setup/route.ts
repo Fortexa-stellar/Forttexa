@@ -7,11 +7,7 @@ import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
 import { securityHeadersForRequest } from "@/lib/security/headers";
 import { STELLAR_PUBLIC_NETWORK_PASSPHRASE } from "@/lib/stellar/network";
 import { getStellarNetworkPassphrase } from "@/lib/stellar/network-config";
-import {
-  getUserWallet,
-  upsertUserWallet,
-  WalletAlreadyBoundError,
-} from "@/lib/storage/user-wallet-store";
+import { getUserWallet, upsertUserWallet } from "@/lib/storage/user-wallet-store";
 import { stellarSetupRequestSchema } from "@/lib/validation/schemas";
 import { logValidationFailure, toPublicValidationDetails } from "@/lib/validation/errors";
 
@@ -57,7 +53,7 @@ export async function POST(request: NextRequest) {
       logWarn("Stellar setup refused on public network", context);
       return NextResponse.json(
         { error: "Stellar setup is disabled on the public network." },
-        { status: 403, headers: rateLimitHeaders(rate) }
+        { status: 403, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 
@@ -100,7 +96,10 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof WalletAlreadyBoundError) {
-      return NextResponse.json({ error: error.message }, { status: 409, headers: rateLimitHeaders(rate) });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 409, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
+      );
     }
 
     return NextResponse.json(

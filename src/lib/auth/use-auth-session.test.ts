@@ -39,7 +39,11 @@ import { useAuthSession } from "@/lib/auth/use-auth-session";
 
 const WALLET = `G${"A".repeat(55)}`;
 
-function useRenderSession() {
+function renderSession() {
+  hookIndex = 0;
+  // react is mocked above (useState and friends are replaced), so this is not a real render
+  // and the hook can be called directly from this test helper.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   return useAuthSession();
 }
 
@@ -68,17 +72,14 @@ describe("useAuthSession refresh", () => {
         json: async () => ({ authenticated: false }),
       });
 
-    hookIndex = 0;
-    await useRenderSession().refresh();
-    hookIndex = 0;
-    const authenticated = useRenderSession();
+    await renderSession().refresh();
+    const authenticated = renderSession();
     expect(authenticated.authenticated).toBe(true);
     expect(authenticated.role).toBe("operator");
     expect(authenticated.wallet).toBe(WALLET);
 
     await authenticated.refresh();
-    hookIndex = 0;
-    const signedOut = useRenderSession();
+    const signedOut = renderSession();
     expect(signedOut.authenticated).toBe(false);
     expect(signedOut.email).toBeNull();
     expect(signedOut.role).toBeNull();

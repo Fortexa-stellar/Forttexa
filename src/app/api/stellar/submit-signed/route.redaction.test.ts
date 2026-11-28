@@ -23,13 +23,7 @@ vi.mock("@/lib/readiness/production", () => ({
 }));
 
 vi.mock("@/lib/http/read-json-body", () => ({
-  readJsonBody: vi.fn(async () => ({
-    ok: true as const,
-    data: {
-      signedXdr: "A".repeat(40),
-      auditEntryId: "00000000-0000-4000-8000-000000000000",
-    },
-  })),
+  readJsonBody: vi.fn(async () => ({ ok: true as const, data: { signedXdr: "A".repeat(40) } })),
 }));
 
 vi.mock("@/lib/storage/submit-idempotency-store", () => ({
@@ -55,10 +49,7 @@ function submitRequest() {
   return new NextRequest("http://localhost/api/stellar/submit-signed", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      signedXdr: "A".repeat(40),
-      auditEntryId: "00000000-0000-4000-8000-000000000000",
-    }),
+    body: JSON.stringify({ signedXdr: "A".repeat(40) }),
   });
 }
 

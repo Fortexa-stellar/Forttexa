@@ -209,48 +209,6 @@ function findMigratableFields(
   return fields.length > 0 ? fields : null;
 }
 
-export type MigratePolicyResult =
-  | { ok: true; policy: PolicyConfig }
-  | { ok: false; failedVersion: number | null };
-
-/**
- * Migrate a stored policy document onto the current schema.
- *
- * Documents may carry their version either as `version` (legacy import shape)
- * or `schemaVersion`. Missing fields with a documented safe default are filled
- * before strict validation; any other failure is reported with the version that
- * could not be migrated.
- */
-export function migratePolicy(raw: unknown): MigratePolicyResult {
-  if (!isPlainObject(raw)) {
-    return { ok: false, failedVersion: null };
-  }
-
-  const declared = raw.version ?? raw[VERSION_FIELD];
-  const version = declared === undefined ? 1 : declared;
-
-  if (
-    typeof version !== "number" ||
-    !Number.isInteger(version) ||
-    !(KNOWN_POLICY_SCHEMA_VERSIONS as readonly number[]).includes(version)
-  ) {
-    return {
-      ok: false,
-      failedVersion: typeof version === "number" ? version : null,
-    };
-  }
-
-  const { version: _version, [VERSION_FIELD]: _schemaVersion, ...rest } = raw;
-  const candidate = { ...defaultPolicyConfig, ...rest };
-  const parsed = policyConfigSchema.safeParse(candidate);
-
-  if (!parsed.success) {
-    return { ok: false, failedVersion: version };
-  }
-
-  return { ok: true, policy: parsed.data };
-}
-
 export function parseStoredPolicy(raw: unknown): PolicyParseResult {
   if (!isPlainObject(raw)) {
     const strict = policyConfigSchema.safeParse(raw);

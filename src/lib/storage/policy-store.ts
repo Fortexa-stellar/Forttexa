@@ -1,7 +1,6 @@
 import { promises as fs } from "node:fs";
 
 import { defaultPolicyConfig, readAmountStroops, validateNoDuplicateRules } from "@/lib/policy/engine";
-import { parseStoredPolicy } from "@/lib/policy/migrations";
 import { runWithDatabase } from "@/lib/storage/db";
 import { getFortexaStoreDir, getFortexaStorePath } from "@/lib/storage/paths";
 import type { PolicyConfig } from "@/lib/types/domain";
@@ -472,18 +471,6 @@ export async function getPolicyHistory(limit = 20) {
     updatedBy: entry.updatedBy,
     policy: normalizePolicy(entry.policy),
   }));
-}
-
-/** Look up a single historical version, throwing when it does not exist. */
-export async function getPolicyVersionByNumber(version: number) {
-  const history = await getPolicyHistory(100);
-  const target = history.find((entry) => entry.version === version);
-
-  if (!target) {
-    throw new Error(`Policy version ${version} not found.`);
-  }
-
-  return target;
 }
 
 export async function rollbackPolicyVersion(version: number, updatedBy?: string) {

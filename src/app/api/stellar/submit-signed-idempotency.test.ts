@@ -20,16 +20,6 @@ const storeMocks = vi.hoisted(() => ({
   failComplete: false,
 }));
 
-vi.mock("@/lib/storage/audit-store", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/storage/audit-store")>();
-
-  return {
-    ...actual,
-    getAuditEntryById: vi.fn(),
-  };
-});
-
 vi.mock("@/lib/storage/submit-idempotency-store", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/storage/submit-idempotency-store")>();
@@ -76,44 +66,23 @@ import {
   Networks,
   Operation,
   TransactionBuilder,
-  type Transaction,
 } from "@stellar/stellar-sdk";
 import { NextRequest } from "next/server";
 
 import { POST as submitSignedPost } from "@/app/api/stellar/submit-signed/route";
 import { buildDecisionReceipt } from "@/lib/stellar/verify-payment-quote";
-import { getAuditEntryById } from "@/lib/storage/audit-store";
 import { IDEMPOTENCY_KEY_ERROR } from "@/lib/validation/schemas";
 import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
 import { resetRateLimitStore } from "@/lib/security/rate-limit";
-import { upsertUserWallet } from "@/lib/storage/user-wallet-store";
 import {
   getIdempotencyRecord,
   resetSubmitIdempotencyState,
 } from "@/lib/storage/submit-idempotency-store";
 
 const OPERATOR_USER_ID = "idem-operator-id";
-const OPERATOR_WALLET_KEYPAIR = Keypair.random();
 const mockTxHash = "b".repeat(64);
-const OTHER_TX_HASH = "c".repeat(64);
 const decisionId = "00000000-0000-4000-8000-000000000001";
 const quoteExpiresAt = new Date(Date.now() + 300_000).toISOString();
-
-function slowSuccess(ms: number, hash = mockTxHash) {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(horizonAccepted(hash)), ms);
-  });
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
 
 function horizonAccepted(hash = mockTxHash) {
   return {
@@ -136,35 +105,10 @@ function operatorCookie() {
   return `${AUTH_COOKIE_KEY}=${token}`;
 }
 
-function amountFromXdr(signedXdr: string) {
-  const decoded = TransactionBuilder.fromXDR(
-    signedXdr,
-    Networks.TESTNET,
-  ) as Transaction;
-  const paymentOp = decoded.operations[0] as { amount?: string };
-  return paymentOp.amount ?? "0";
-}
-
 function submitRequest(
   body: unknown,
   extraHeaders: Record<string, string> = {},
 ) {
-  const raw = body as Record<string, unknown>;
-  const needsReceipt =
-    typeof raw.signedXdr === "string" &&
-    !raw.decisionReceipt &&
-    !raw.auditEntryId &&
-    !raw.decisionId;
-  const payload = needsReceipt
-    ? {
-        ...raw,
-        decisionReceipt: makeDecisionReceiptForXdr(
-          raw.signedXdr as string,
-          amountFromXdr(raw.signedXdr as string),
-        ),
-      }
-    : raw;
-
   return new NextRequest("http://localhost/api/stellar/submit-signed", {
     method: "POST",
     headers: {
@@ -172,12 +116,12 @@ function submitRequest(
       cookie: operatorCookie(),
       ...extraHeaders,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(authorizedBody),
   });
 }
 
 function buildSignedXdr(amount: string, destination?: string) {
-  const source = OPERATOR_WALLET_KEYPAIR;
+  const source = Keypair.random();
   const destinationKey = Keypair.random();
   const account = new Account(source.publicKey(), "1");
   const tx = new TransactionBuilder(account, {
@@ -199,10 +143,7 @@ function buildSignedXdr(amount: string, destination?: string) {
 }
 
 function makeDecisionReceiptForXdr(signedXdr: string, amount: string) {
-  const decoded = TransactionBuilder.fromXDR(
-    signedXdr,
-    Networks.TESTNET,
-  ) as Transaction;
+  const decoded = TransactionBuilder.fromXDR(signedXdr, Networks.TESTNET);
   const paymentOp = decoded.operations[0] as (typeof decoded.operations)[0] & {
     destination?: string;
     amount?: string;
@@ -239,13 +180,7 @@ beforeEach(async () => {
   });
   horizonMocks.verifyQuote.mockReturnValue({ ok: true, quote: {} });
 
-  await upsertUserWallet(OPERATOR_USER_ID, {
-    publicKey: OPERATOR_WALLET_KEYPAIR.publicKey(),
-    source: "external",
-  });
-
   await resetSubmitIdempotencyState(OPERATOR_USER_ID);
-  await resetRateLimitStore();
 });
 
 afterAll(async () => {
@@ -544,10 +479,6 @@ describe("submit-signed idempotency - rejected retries", () => {
       const store = await import("@/lib/storage/submit-idempotency-store");
       const requestHash = store.hashCanonicalPaymentBody(key, {
         signedXdr,
-        decisionReceipt: makeDecisionReceiptForXdr(
-          signedXdr,
-          amountFromXdr(signedXdr),
-        ),
         idempotencyKey: key,
       });
       await store.beginIdempotentSubmit(OPERATOR_USER_ID, key, requestHash, {

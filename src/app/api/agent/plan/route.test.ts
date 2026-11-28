@@ -157,6 +157,8 @@ describe("POST /api/agent/plan", () => {
     const response = await POST(planRequest({ goal: "hi" }));
 
     expect(response.status).toBe(400);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(mockedGenerate).not.toHaveBeenCalled();
   });
 
@@ -166,6 +168,8 @@ describe("POST /api/agent/plan", () => {
     const response = await POST(planRequest({ goal: "Fetch research report please." }));
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
 
     const payload = (await response.json()) as {
       ok: boolean;
@@ -192,6 +196,8 @@ describe("POST /api/agent/plan", () => {
     const response = await POST(planRequest({ goal: "Move funds to wallet-drainer.evil." }));
 
     expect(response.status).toBe(422);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
 
     const payload = (await response.json()) as { ok: boolean; code: string; error: string };
     expect(payload.ok).toBe(false);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseStoredPolicy } from "@/lib/policy/migrations";
 import { policyConfigSchema } from "@/lib/validation/schemas";
-import { generatePolicyDiff, groupDiffChanges } from "@/lib/validation/policy-diff";
+import { generatePolicyDiff, groupDiffChanges } from "@/lib/validation/diff";
 import type { PolicyConfig } from "@/lib/types/domain";
 
 // Shared fixtures with the migration test suite so the API and the

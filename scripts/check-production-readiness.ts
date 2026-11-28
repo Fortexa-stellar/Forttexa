@@ -3,7 +3,6 @@ import { loadEnvConfig } from "@next/env";
 import {
   checkProductionReadiness,
   formatProductionReadinessReport,
-  runReadinessFixture,
 } from "../src/lib/readiness/production";
 
 loadEnvConfig(process.cwd());
@@ -11,27 +10,43 @@ loadEnvConfig(process.cwd());
 import { Pool } from "pg";
 import { STORAGE_MIGRATIONS } from "../src/lib/storage/migrations";
 
-// CI fixture mode: when FORTEXA_READINESS_FIXTURE is set, the checker runs
+// CI fixture mode: when PRODUCTION_READINESS_FIXTURE is set, the checker runs
 // against a safe, non-secret environment snapshot instead of the real process env.
 // Supported values:
 //   "valid"   - a configuration that must pass the readiness check
 //   "invalid" - a configuration that must fail the readiness check
 // No database connection is attempted in fixture mode.
+const FIXTURE_ENVS: Record<string, NodeJS.ProcessEnv> = {
+  valid: {
+    NODE_ENV: "production",
+    APP_URL: "https://app.fortexa.invalid",
+    DATABASE_URL: "",
+    DATABASE_SSL: "false",
+    SESSION_SECRET: "fixture-session-secret-not-a-real-secret-0123456789abcdef",
+  },
+  invalid: {
+    NODE_ENV: "production",
+    APP_URL: "http://localhost:3000",
+    DATABASE_URL: "",
+    DATABASE_SSL: "false",
+    SESSION_SECRET: "",
+  },
+};
+
 async function main() {
-  const fixtureName =
-    process.env.FORTEXA_READINESS_FIXTURE?.trim() ??
-    process.env.PRODUCTION_READINESS_FIXTURE?.trim();
+  const fixtureName = process.env.PRODUCTION_READINESS_FIXTURE?.trim();
 
   if (fixtureName) {
-    const report = runReadinessFixture(fixtureName);
-    if (!report) {
+    const fixtureEnv = FIXTURE_ENVS[fixtureName];
+    if (!fixtureEnv) {
       console.error(
-        `Unknown readiness fixture "${fixtureName}". Expected one of: valid, invalid`,
+        `Unknown PRODUCTION_READINESS_FIXTURE "${fixtureName}". Expected one of: ${Object.keys(FIXTURE_ENVS).join(", ")}`,
       );
       process.exitCode = 1;
       return;
     }
 
+    const report = checkProductionReadiness(fixtureEnv, { appliedMigrationId: "none" });
     const output = formatProductionReadinessReport(report);
 
     if (fixtureName === "valid") {
@@ -44,14 +59,15 @@ async function main() {
       return;
     }
 
-    if (!report.ok) {
+    if (fixtureName === "invalid") {
+      if (report.ok) {
+        console.error(`Fixture "invalid" was expected to fail but passed:\n${output}`);
+        process.exitCode = 1;
+        return;
+      }
       console.log(`Fixture "invalid" failed as expected:\n${output}`);
-      process.exitCode = 1;
       return;
     }
-
-    console.error(`Fixture "invalid" was expected to fail but passed:\n${output}`);
-    process.exitCode = 1;
     return;
   }
 

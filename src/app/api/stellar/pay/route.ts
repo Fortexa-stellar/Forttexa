@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
-import { isLoginAuthorizationPayload } from "@/lib/auth/wallet-challenge";
-import { readinessBlockResponse } from "@/lib/readiness/guard";
 import { checkBlocklist } from "@/lib/security/blocklist";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
 import { securityHeadersForRequest } from "@/lib/security/headers";
@@ -26,17 +24,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // A login signature authenticates a wallet; it can never authorize a
-    // payment. Reject it before role checks so it is not treated as a
-    // forbidden-but-retryable authorization.
-    const rawPayload = (await request.json().catch(() => ({}))) as unknown;
-    if (isLoginAuthorizationPayload(rawPayload)) {
-      return NextResponse.json(
-        { error: "Login signatures cannot authorize a payment." },
-        { status: 400, headers: rateLimitHeaders(rate) },
-      );
-    }
-
     const auth = requireAuth(request, { allowedRoles: ["signer"] });
 
     if (!auth.ok) {
@@ -52,6 +39,13 @@ export async function POST(request: NextRequest) {
     );
     if (notReady) {
       return notReady;
+    }
+    const rawPayload = (await request.json().catch(() => ({}))) as unknown;
+    if (isLoginAuthorizationPayload(rawPayload)) {
+      return NextResponse.json(
+        { error: "Login signatures cannot authorize a payment." },
+        { status: 400, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } },
+      );
     }
 
     const parsedPayload = stellarBuildPaymentRequestSchema.safeParse(rawPayload);
@@ -72,7 +66,7 @@ export async function POST(request: NextRequest) {
     if (!(await checkBlocklist(payload.destination)).allow) {
       return NextResponse.json(
         { error: "Destination is blocklisted." },
-        { status: 403, headers: rateLimitHeaders(rate) }
+        { status: 403, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 
@@ -88,7 +82,7 @@ export async function POST(request: NextRequest) {
     if (!verification.ok) {
       return NextResponse.json(
         { error: verification.error, field: verification.field },
-        { status: verification.status, headers: rateLimitHeaders(rate) }
+        { status: verification.status, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } }
       );
     }
 

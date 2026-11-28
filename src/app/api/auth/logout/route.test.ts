@@ -95,8 +95,6 @@ describe("logout invalidates the session server-side", () => {
 
   it("carries the session id across refresh so each generation belongs to one session", async () => {
     const first = loginToken();
-    // Rotating rejects the previous generation, so read its sid before refresh.
-    const firstSid = sessionIdOf(first);
     vi.setSystemTime(START + 60_000);
 
     const response = await refreshWith(first);
@@ -104,7 +102,7 @@ describe("logout invalidates the session server-side", () => {
 
     expect(response.status).toBe(200);
     expect(second).not.toBe(first);
-    expect(sessionIdOf(second)).toBe(firstSid);
+    expect(sessionIdOf(second)).toBe(sessionIdOf(first));
   });
 
   it("revokes every generation, whichever generation logs out", async () => {

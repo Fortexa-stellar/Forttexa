@@ -2,23 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/lib/auth/require-auth";
 import { readJsonBody } from "@/lib/http/read-json-body";
+import { enforceRequestGate } from "@/lib/security/enforcement-gate";
 import { getProtectedPaymentFlowReadinessReport } from "@/lib/readiness/production";
 import { readinessBlockResponse } from "@/lib/readiness/guard";
-import {
-  enforceRequestGate,
-  gateErrorHeaders,
-} from "@/lib/security/enforcement-gate";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
 import { securityHeadersForRequest } from "@/lib/security/headers";
 import { buildUnsignedPaymentTransaction } from "@/lib/stellar/client";
-import {
-  createBuildAuthorization,
-  getTransactionHash,
-} from "@/lib/stellar/payment-build-authorization";
-import {
-  getQuoteExpiresAt,
-  verifyPaymentAgainstQuote,
-} from "@/lib/stellar/verify-payment-quote";
+import { verifyPaymentAgainstQuote } from "@/lib/stellar/verify-payment-quote";
 import { paymentExceedsPerTxCap } from "@/lib/policy/engine";
 import { getAuditEntryById } from "@/lib/storage/audit-store";
 import { getPolicyConfig } from "@/lib/storage/policy-store";
@@ -49,14 +39,8 @@ export async function POST(request: NextRequest) {
 
   if (!gate.ok) {
     return NextResponse.json(
-      { error: gate.error, code: gate.code },
-      {
-        status: gate.status,
-        headers: {
-          ...gateErrorHeaders(gate),
-          ...securityHeadersForRequest(request),
-        },
-      },
+      { error: "Rate limit exceeded for payment build endpoint." },
+      { status: 429, headers: { ...rateLimitHeaders(rate), ...securityHeadersForRequest(request) } },
     );
   }
 
@@ -197,9 +181,6 @@ export async function POST(request: NextRequest) {
         sourcePublicKey,
         xdr: unsigned.xdr,
         networkPassphrase: unsigned.networkPassphrase,
-        decisionId: auditEntry!.id,
-        quoteExpiresAt,
-        buildAuthorization,
         decisionReceipt: verification.quote,
         paymentQuote: verification.quote,
       },

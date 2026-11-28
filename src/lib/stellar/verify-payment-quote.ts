@@ -1,14 +1,5 @@
 import { createHash } from "node:crypto";
 
-import {
-  FeeBumpTransaction,
-  Memo,
-  MemoText,
-  Transaction,
-  TransactionBuilder,
-} from "@stellar/stellar-sdk";
-
-import { getStellarNetworkPassphrase } from "@/lib/stellar/network-config";
 import { validateRequestTimestamp } from "@/lib/stellar/request-timestamp-skew";
 import {
   parseXlmNumberToStroops,
@@ -28,8 +19,7 @@ export type PaymentQuoteField =
   | "amountXLM"
   | "asset"
   | "memo"
-  | "network"
-  | "requestTimestampMs";
+  | "network";
 
 export type PaymentBuildParams = {
   destination: string;
@@ -37,12 +27,6 @@ export type PaymentBuildParams = {
   asset: StellarAssetId;
   memo?: string;
   network: StellarNetworkId;
-  /**
-   * Optional epoch-millisecond timestamp the client attaches to this request.
-   * When present it is checked against the configured clock-skew window before
-   * any other verification runs.
-   */
-  requestTimestampMs?: number;
 };
 
 export type VerifyPaymentQuoteResult =
@@ -110,7 +94,7 @@ export function isValidPaymentAmountString(amount: string): boolean {
 const DEFAULT_QUOTE_TTL_SECONDS = 300;
 
 /**
- * Returns the payment quote TTL in milliseconds.
+ * Returns the payment quote TTL in seconds.
  * Reads FORTEXA_PAYMENT_QUOTE_TTL_SECONDS; falls back to 300 s when the
  * value is absent, non-numeric, or less than 1.
  */
@@ -119,14 +103,9 @@ export function getQuoteTtlMs(): number {
     process.env.FORTEXA_PAYMENT_QUOTE_TTL_SECONDS ?? DEFAULT_QUOTE_TTL_SECONDS,
   );
   if (!Number.isFinite(parsed) || parsed < 1) {
-    return DEFAULT_QUOTE_TTL_SECONDS * 1000;
+    return DEFAULT_QUOTE_TTL_SECONDS;
   }
-  return Math.floor(parsed) * 1000;
-}
-
-/** Returns the payment quote TTL in whole seconds for skew checks. */
-function getQuoteTtlSeconds(): number {
-  return Math.floor(getQuoteTtlMs() / 1000);
+  return Math.floor(parsed);
 }
 
 /**
@@ -206,47 +185,21 @@ export function buildPaymentQuoteFromDecision(input: {
   amountXLM: number;
   memo?: string;
   actionId: string;
-      network?: StellarNetworkId;
-    nowMs?: number;
+  network?: StellarNetworkId;
+  nowMs?: number;
 }): PaymentQuote {
-  return {
-    ...buildDecisionReceipt({
-      destination: input.destination,
-      amountXLM: input.amountXLM,
-      memo: input.memo ?? `fortexa:${input.actionId}`,
-      network: input.network,
-    }),
-    expiresAt: new Date((input.nowMs ?? Date.now()) + getQuoteTtlMs()).toISOString(),
-  };
+  return buildDecisionReceipt({
+    destination: input.destination,
+    amountXLM: input.amountXLM,
+    memo: input.memo ?? `fortexa:${input.actionId}`,
+    network: input.network,
+  });
 }
 
 export function getQuoteExpiresAt(auditEntry: AuditEntry): string {
   if (auditEntry.paymentQuote?.expiresAt) return auditEntry.paymentQuote.expiresAt;
   const legacyExpiryMs = Date.parse(auditEntry.timestamp) + getQuoteTtlMs();
   return Number.isFinite(legacyExpiryMs) ? new Date(legacyExpiryMs).toISOString() : "";
-}
-
-/** Rechecks the persisted decision and its original expiry at submission time. */
-export function isPaymentDecisionCurrent(
-  auditEntry: AuditEntry | undefined,
-  decisionId: string,
-  quoteExpiresAt: string,
-  nowMs = Date.now(),
-): boolean {
-  if (
-    !auditEntry?.paymentQuote ||
-    auditEntry.id !== decisionId ||
-    !EXECUTABLE_DECISIONS.has(auditEntry.decision)
-  ) {
-    return false;
-  }
-  const storedExpiry = getQuoteExpiresAt(auditEntry);
-  const expiryMs = Date.parse(storedExpiry);
-  return (
-    storedExpiry === quoteExpiresAt &&
-    Number.isFinite(expiryMs) &&
-    nowMs < expiryMs
-  );
 }
 
 export type ValidateDecisionReceiptResult =
@@ -354,12 +307,6 @@ export function verifyPaymentAgainstQuote(
     }
   }
 
-  const gate = assertQuoteFreshAndPresent(auditEntry);
-  if (!gate.ok) {
-    return gate;
-  }
-  const { quote } = gate;
-
   const expiresAtMs = Date.parse(getQuoteExpiresAt(auditEntry));
   if (!Number.isFinite(expiresAtMs) || nowMs >= expiresAtMs) {
     return {
@@ -368,6 +315,8 @@ export function verifyPaymentAgainstQuote(
       error: "Payment quote has expired. Please re-evaluate the action.",
     };
   }
+
+  const { quote } = gate;
 
   const normalizedRequest = {
     destination: request.destination.trim().toUpperCase(),
@@ -441,7 +390,6 @@ export type SignedPaymentField =
   | "destination"
   | "memo"
   | "operations"
-  | "requestTimestampMs"
   | "signedXdr";
 
 export type VerifySignedPaymentQuoteResult =
@@ -522,12 +470,7 @@ export function verifySignedPaymentAgainstQuote(
 
   const gate = assertQuoteFreshAndPresent(auditEntry);
   if (!gate.ok) {
-    return {
-      ok: false,
-      status: gate.status,
-      error: gate.error,
-      ...(gate.field ? { field: gate.field as SignedPaymentField } : {}),
-    };
+    return gate;
   }
   const { quote } = gate;
 

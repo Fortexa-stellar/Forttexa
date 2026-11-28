@@ -15,7 +15,7 @@
 
 import { promises as fs } from "node:fs";
 
-import { Account, Asset, Keypair, Memo, Networks, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
+import { Account, Asset, Keypair, Networks, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
@@ -84,7 +84,7 @@ const destinationKeypair = Keypair.random();
 function operatorCookie() {
   const token = createSessionToken({
     email: "gate-route@fortexa.local",
-    role: "signer",
+    role: "operator",
     userId: OPERATOR_USER_ID,
     expiresInSeconds: 600,
   });
@@ -346,13 +346,6 @@ describe("shared enforcement gate across routes", () => {
       result_xdr: "",
     });
 
-    // Every signed submission must be bound to an authorized decision quote.
-    const decisionRes = await decisionPost(
-      jsonRequest("http://localhost/api/decision", decisionBody(CLEAN_DOMAIN), "10.77.5.0"),
-    );
-    expect(decisionRes.status).toBe(200);
-    const { auditEntry } = (await decisionRes.json()) as { auditEntry: { id: string } };
-
     let sequence = 1;
     const makeSignedXdr = () => {
       const account = new Account(sourceKeypair.publicKey(), String(sequence++));
@@ -364,10 +357,9 @@ describe("shared enforcement gate across routes", () => {
           Operation.payment({
             destination: destinationKeypair.publicKey(),
             asset: Asset.native(),
-            amount: "5.0000000",
+            amount: "1.0000000",
           }),
         )
-        .addMemo(Memo.text("gate route test"))
         .setTimeout(30)
         .build();
       tx.sign(sourceKeypair);
@@ -379,7 +371,7 @@ describe("shared enforcement gate across routes", () => {
       const res = await submitSignedPost(
         jsonRequest(
           "http://localhost/api/stellar/submit-signed",
-          { signedXdr: makeSignedXdr(), auditEntryId: auditEntry.id },
+          { signedXdr: makeSignedXdr() },
           ip,
         ),
       );
@@ -389,7 +381,7 @@ describe("shared enforcement gate across routes", () => {
     const denied = await submitSignedPost(
       jsonRequest(
         "http://localhost/api/stellar/submit-signed",
-        { signedXdr: makeSignedXdr(), auditEntryId: auditEntry.id },
+        { signedXdr: makeSignedXdr() },
         ip,
       ),
     );
@@ -448,10 +440,9 @@ describe("shared enforcement gate across routes", () => {
         Operation.payment({
           destination: destinationKeypair.publicKey(),
           asset: Asset.native(),
-          amount: "5.0000000",
+          amount: "2.0000000",
         }),
       )
-      .addMemo(Memo.text("gate route test"))
       .setTimeout(30)
       .build();
     tx.sign(sourceKeypair);
@@ -459,7 +450,7 @@ describe("shared enforcement gate across routes", () => {
     const submitRes = await submitSignedPost(
       jsonRequest(
         "http://localhost/api/stellar/submit-signed",
-        { signedXdr: tx.toXDR(), auditEntryId: decisionPayload.auditEntry.id },
+        { signedXdr: tx.toXDR() },
         "10.77.6.3",
       ),
     );
@@ -510,9 +501,9 @@ describe("shared enforcement gate across routes", () => {
       ),
     );
     const settled = await Promise.all(parallel);
-    const statuses = settled.map((r: Response) => r.status);
-    const allowedCount = statuses.filter((s: number) => s === 200).length;
-    const limitedCount = statuses.filter((s: number) => s === 429).length;
+    const statuses = settled.map((r) => r.status);
+    const allowedCount = statuses.filter((s) => s === 200).length;
+    const limitedCount = statuses.filter((s) => s === 429).length;
 
     // Not all 40 in-budget requests necessarily reach 200 (usage/policy may
     // warn), but exactly 40 must be past the gate and 5 rate-limited.

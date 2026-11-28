@@ -9,9 +9,7 @@ vi.hoisted(() => {
 });
 
 const { runWithDatabaseMock } = vi.hoisted(() => ({
-  runWithDatabaseMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(
-    async () => ({ available: false as const }),
-  ),
+  runWithDatabaseMock: vi.fn(async () => ({ available: false as const })),
 }));
 
 vi.mock("@/lib/storage/db", () => ({
@@ -78,6 +76,32 @@ describe("audit-store append serialization", () => {
     );
   });
 
+  it("returns the requested page from the file-backed store", async () => {
+    await appendAuditEntry(USER_ID, makeEntry("oldest", "2026-01-01T00:00:00.000Z"));
+    await appendAuditEntry(USER_ID, makeEntry("middle", "2026-01-02T00:00:00.000Z"));
+    await appendAuditEntry(USER_ID, makeEntry("newest", "2026-01-03T00:00:00.000Z"));
+
+    const page = await listAuditEntries(USER_ID, undefined, { limit: 1, offset: 1 });
+
+    expect(page.map((entry) => entry.id)).toEqual(["middle"]);
+  });
+
+  it("bounds database reads with SQL limit and offset", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const pool = { query };
+    runWithDatabaseMock.mockImplementationOnce(async (_name, action) => ({
+      available: true as const,
+      value: await action(pool as never),
+    }));
+
+    await listAuditEntries(USER_ID, undefined, { limit: 26, offset: 75 });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("LIMIT $2 OFFSET $3"),
+      [USER_ID, 26, 75],
+    );
+  });
+
   it("preserves the last committed file-store tip when atomic replacement fails", async () => {
     await appendAuditEntry(USER_ID, makeEntry("first"));
     const renameSpy = vi.spyOn(fs, "rename").mockRejectedValueOnce(new Error("disk write failed"));
@@ -103,10 +127,9 @@ describe("audit-store append serialization", () => {
       release: vi.fn(),
     };
     const pool = { connect: vi.fn(async () => client) };
-    runWithDatabaseMock.mockImplementationOnce(async (_name: unknown, action: unknown) => {
-      const run = action as (pool: unknown) => Promise<unknown>;
+    runWithDatabaseMock.mockImplementationOnce(async (_name, action) => {
       try {
-        return { available: true as const, value: await run(pool) };
+        return { available: true as const, value: await action(pool as never) };
       } catch (error) {
         throw error;
       }

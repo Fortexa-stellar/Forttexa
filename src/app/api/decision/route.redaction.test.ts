@@ -16,16 +16,6 @@ vi.mock("@/lib/decision/engine", async (importOriginal) => {
   };
 });
 
-vi.mock("@/lib/storage/user-wallet-store", () => ({
-  getUserWallet: vi.fn(async (userId: string) => ({
-    userId,
-    publicKey: `G${"A".repeat(55)}`,
-    source: "external",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  })),
-}));
-
 const { evaluateDecision } = await import("@/lib/decision/engine");
 const { AUTH_COOKIE_KEY, createSessionToken } = await import("@/lib/auth/session");
 const metrics = await import("@/lib/observability/metrics");

@@ -117,10 +117,6 @@ export const ALLOWED_METRIC_NAMES: ReadonlySet<string> = new Set<string>([
   "fortexa_request_duration_ms_p95",
   "fortexa_decision_outcomes_total",
   "fortexa_stellar_submit_results_total",
-  "fortexa_decisions_allowed_total",
-  "fortexa_decisions_denied_total",
-  "fortexa_rate_limit_rejections_total",
-  "fortexa_stellar_submit_failures_total",
 ]);
 
 /**
@@ -353,10 +349,6 @@ export function renderMetricLine(
       return null;
     }
   }
-  if (keys.length === 0) {
-    return `${name} ${value}`;
-  }
-
   const renderedLabels = keys
     .map((key) => `${key}="${escapePrometheusLabelValue(String(labels[key]))}"`)
     .join(",");
@@ -383,35 +375,6 @@ export function toPrometheusText() {
     );
   }
 
-  push(renderHelpLine("fortexa_request_errors_total", "Total API errors by route/method"));
-  push(renderTypeLine("fortexa_request_errors_total", "counter"));
-  for (const route of snapshot.routes) {
-    push(
-      renderMetricLine(
-        "fortexa_request_errors_total",
-        { route: route.route, method: route.method },
-        route.errorCount,
-      ),
-    );
-  }
-
-  push(
-    renderHelpLine(
-      "fortexa_request_duration_ms_p95",
-      "P95 request duration in milliseconds",
-    ),
-  );
-  push(renderTypeLine("fortexa_request_duration_ms_p95", "gauge"));
-  for (const route of snapshot.routes) {
-    push(
-      renderMetricLine(
-        "fortexa_request_duration_ms_p95",
-        { route: route.route, method: route.method },
-        route.p95DurationMs,
-      ),
-    );
-  }
-
   // Rolled-up enforcement counters. These are always emitted (zero-initialised) so
   // alerting rules and Grafana panels stay valid on a freshly started process, and
   // so the scrape reports exactly the numbers the ops dashboard renders.
@@ -427,38 +390,10 @@ export function toPrometheusText() {
   lines.push("# TYPE fortexa_rate_limit_rejections_total counter");
   lines.push(`fortexa_rate_limit_rejections_total ${snapshot.counters.rateLimit}`);
 
-  push(renderHelpLine("fortexa_stellar_submit_failures_total", "Total failed Stellar submission attempts"));
-  push(renderTypeLine("fortexa_stellar_submit_failures_total", "counter"));
-  push(
-    renderMetricLine(
-      "fortexa_stellar_submit_failures_total",
-      {},
-      snapshot.counters.submitFailures,
-    ),
-  );
-
-  push(renderHelpLine("fortexa_decision_outcomes_total", "Total decisions by outcome"));
-  push(renderTypeLine("fortexa_decision_outcomes_total", "counter"));
-  for (const outcome of ALLOWED_OUTCOMES) {
-    push(
-      renderMetricLine(
-        "fortexa_decision_outcomes_total",
-        { outcome },
-        decisionOutcomeCounts.get(outcome) ?? 0,
-      ),
-    );
-  }
-
   push(renderHelpLine("fortexa_stellar_submit_results_total", "Total Stellar submission attempts by result"));
   push(renderTypeLine("fortexa_stellar_submit_results_total", "counter"));
-  for (const result of ALLOWED_RESULTS) {
-    push(
-      renderMetricLine(
-        "fortexa_stellar_submit_results_total",
-        { result },
-        stellarSubmitResultCounts.get(result) ?? 0,
-      ),
-    );
+  for (const [result, count] of stellarSubmitResultCounts) {
+    push(renderMetricLine("fortexa_stellar_submit_results_total", { result }, count));
   }
 
   return `${lines.join("\n")}\n`;

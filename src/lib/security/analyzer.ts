@@ -5,8 +5,11 @@ import type {
   SecurityFinding,
 } from "@/lib/types/domain";
 import {
+  BlocklistFetchError,
+  BlocklistUrlError,
   fetchBlocklist,
-  getBlocklistHealth,
+  getBlocklistTimeoutMs,
+  getCachedBlocklist,
 } from "@/lib/security/blocklist";
 
 /** Configuration for analyzer timeout behavior. */
@@ -90,7 +93,7 @@ function outputSafetyCheck(outputPreview?: string): SecurityFinding[] {
     }
   }
 
-  if (/private key|secret key|secret seed|mnemonic/i.test(outputPreview)) {
+  if (/private key|secret seed|mnemonic/i.test(outputPreview)) {
     findings.push({
       code: "SECRET_TARGETING",
       title: "Sensitive secret extraction attempt",
@@ -147,28 +150,34 @@ function blocklistCheck(
   return [];
 }
 
-/**
- * Fetch the blocklist and report whether the feed was reachable.
- * `fetchBlocklist` enforces its own timeout and rethrows fetch failures; on
- * failure we fall back to an empty list and report the degraded status.
- */
+type BlocklistFetchStatus = {
+  blocked: boolean;
+  timedOut: boolean;
+  error?: string;
+};
+
+/** Fetch the blocklist, retaining the last known list when its feed is unavailable. */
 async function fetchBlocklistWithTimeout(): Promise<{
   blocklist: string[];
-  status: { blocked: boolean; timedOut: boolean; error?: string };
+  status: BlocklistFetchStatus;
 }> {
   try {
     const blocklist = await fetchBlocklist();
     return { blocklist, status: { blocked: false, timedOut: false } };
   } catch (err) {
-    const health = getBlocklistHealth();
-    const error =
-      health.lastError ??
-      (err instanceof Error ? err.message : "Unknown fetch error");
-    const timedOut =
-      (err instanceof Error &&
-        (err.name === "AbortError" || err.name === "TimeoutError")) ||
-      /abort|timed? ?out/i.test(error);
-    return { blocklist: [], status: { blocked: true, timedOut, error } };
+    const error = err instanceof BlocklistFetchError
+      ? err.code
+      : err instanceof BlocklistUrlError
+        ? "BLOCKLIST_URL_INVALID"
+        : "BLOCKLIST_FETCH_FAILED";
+    return {
+      blocklist: getCachedBlocklist(),
+      status: {
+        blocked: true,
+        timedOut: error === "BLOCKLIST_FETCH_TIMEOUT",
+        error,
+      },
+    };
   }
 }
 
@@ -193,12 +202,14 @@ export async function evaluateSecurity(
     await fetchBlocklistWithTimeout();
 
   if (blocklistFetchStatus.timedOut) {
-    analyzerStatus.blocklistStatus = "error";
+    analyzerStatus.blocklistStatus = "timeout";
     analyzerStatus.blocklistTimedOut = true;
     analyzerStatus.blocklistError =
       blocklistFetchStatus.error ?? "Blocklist fetch timed out";
     analyzerStatus.isDegraded = true;
-    analyzerStatus.degradationReasons?.push("blocklist_timeout");
+    analyzerStatus.degradationReasons?.push(
+      `blocklist_timeout_${getBlocklistTimeoutMs()}ms`,
+    );
   } else if (blocklistFetchStatus.blocked) {
     analyzerStatus.blocklistStatus = "error";
     analyzerStatus.blocklistError = blocklistFetchStatus.error;

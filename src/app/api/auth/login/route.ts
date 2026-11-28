@@ -3,14 +3,13 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { clearLoginFailures, isLoginLocked, readClientIp, registerLoginFailure } from "@/lib/auth/login-lockout";
-import { AUTH_COOKIE_KEY, startSession } from "@/lib/auth/session";
-import { setSessionCookie } from "@/lib/auth/session-cookie";
+import { AUTH_COOKIE_KEY, createSessionToken } from "@/lib/auth/session";
 import { verifyWalletChallenge } from "@/lib/auth/wallet-challenge";
-import { normalizeWalletPublicKey, resolveRoleByWallet, resolveRolesByWallet } from "@/lib/auth/wallet-role";
+import { normalizeWalletPublicKey, resolveRoleByWallet } from "@/lib/auth/wallet-role";
 import { jsonWithRequestContext } from "@/lib/observability/http";
 import { getRequestLogContext, logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { consumeRateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
-import { upsertUserWallet, WalletAlreadyBoundError } from "@/lib/storage/user-wallet-store";
+import { upsertUserWallet } from "@/lib/storage/user-wallet-store";
 import { logValidationFailure, toPublicValidationDetails } from "@/lib/validation/errors";
 
 const loginSchema = z.object({
@@ -73,20 +72,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const bodyResult = await readJsonBody(request);
-
-    if (!bodyResult.ok) {
-      logWarn("Auth login payload too large", context);
-      return respond(request, {
-        route: "/api/auth/login",
-        startedAtMs,
-        status: 413,
-        body: { error: bodyResult.error },
-        headers: rateLimitHeaders(rate),
-      });
-    }
-
-    const rawBody = bodyResult.data;
+    const rawBody = (await request.json().catch(() => ({}))) as unknown;
     requestBody = rawBody;
     const parsed = loginSchema.safeParse(rawBody);
 
@@ -143,16 +129,12 @@ export async function POST(request: NextRequest) {
         route: "/api/auth/login",
         startedAtMs,
         status: challengeResult.code === "invalid_signature" ? 401 : 400,
-        body: {
-          error: challengeErrorMessage(challengeResult.code),
-          code: challengeResult.code,
-        },
+        body: { error: challengeErrorMessage(challengeResult.code) },
         headers: rateLimitHeaders(rate),
       });
     }
 
     const roles = resolveRolesByWallet(normalizedWallet);
-    const role = resolveRoleByWallet(normalizedWallet);
 
     if (!role) {
       const failure = await registerLoginFailure(userId, clientIp);
